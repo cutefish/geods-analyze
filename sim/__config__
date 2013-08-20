@@ -1,0 +1,31 @@
+#data configs
+dataset.groups = {
+    1 : 128,
+    2 : 128,
+    3 : 128,
+    4 : 128,
+    5 : 128,
+}
+
+#system configs
+num.zones = 2
+num.storage.nodes.per.zone = 2
+max.num.txns.per.storage.node = 1024
+
+##network configs
+network.sim.class = 'network.FixedLatencyNetwork'
+fixed.latency.nw.within.zone = 5
+fixed.latency.nw.cross.zone = 100
+
+#transaction configs
+txn.gen.impl = 'txngen.UniformTxnGen'
+total.num.txns = 1000
+txn.arrive.interval.dist = ('expo', 100, )  #(dist, mean, [kargs])
+#'freq', 'nwrites', 'nreads', 'groups', 'intvl.dist'
+txn.classes = [
+    {'freq':1, 'nwrites':8, 'intvl.dist':('expo', 10,)},
+]  
+
+#simulation configs
+simulation.duration = 600000     #10 min
+system.impl = 'system.BaseSystem'

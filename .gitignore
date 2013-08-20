@@ -1,0 +1,6 @@
+#python compiles
+*.pyo
+*.pyc
+
+#plot generated files
+*.pdf
