@@ -107,39 +107,45 @@ class DDist(object):
                 'DDists must have the same sample rate to add: '
                 'self.h:%s, ddist.h:%s, self.th:%s, ddist.th:%s'
                 %(self.h, ddist.h, self.th, ddist.th))
-        #compute the front part
+        #bounds and intervals
+        #the addition bounds are set to:
+        #   [lb1 + lb2, tb1 + tb2), [tb1 + tb2, ub1 + ub2)
         lb = self.lb + ddist.lb
-        tb = self.tb + ddist.tb - self.h
-        n = self.llen + ddist.llen - 1
+        tb = self.tb + ddist.tb
+        ub = self.ub + ddist.ub
+        tnh = int((self.th + 0.5 * self.h) / self.h)
+        #compute the front part
+        n = self.llen + ddist.llen
         pmfy = [0.0] * n
         for i in range(self.llen):
             for j in range(ddist.llen):
                 pmfy[i + j] += self.pmfy[i] * ddist.pmfy[j]
-        tnh = int((self.th + 0.5 * self.h) / self.h)
         for i in range(self.llen):
-            end = (n - i) / tnh
-            for jj in range(0, ddist.llen, tnh):
-                for kk in range(0, tnh):
-                    j = 
-
-        li1 = int(self.lb / self.h)
-        li2 = int(ddist.lb / self.h)
-        ui1 = li1 + self.length - 1
-        ui2 = li2 + ddist.length - 1
-        lb = self.lb + ddist.lb
-        ub = self.ub + ddist.ub
-        li = li1 + li2
-        n = int((ub - lb) / self.h) + 1
-        pmfy = [0.0] * n
-        #print ('\nself.lb:%s, ddist.lb:%s, li1:%s, li2:%s, ui1:%s, ui2:%s, lb:%s, ub:%s, li:%s, n:%s\n'
-        #       %(self.lb, ddist.lb, li1, li2, ui1, ui2, lb, ub, li, n))
-        for sidx in range(n):
-            s = sidx + li    #absolute index of summation
-            start = max(li1, s - ui2)
-            end = min(ui1 + 1, s - li2 + 1)
-            for i in range(start, end):
-                idx1 = i - li1       #relative index of first ddist
-                idx2 = s - i - li2   #relative index of second ddist
-                pmfy[sidx] += self.pmfi(idx1) * ddist.pmfi(idx2)
-        return DDist(lb, pmfy, h=self.h)
+            end = min(ddist.tlen, (n - i - ddist.llen) / tnh)
+            for j in range(end):
+                k = i + ddist.llen + j * tnh
+                pmfy[k] += self.pmfy[i] * ddist.tpmfy[j]
+        for i in range(ddist.llen):
+            end = min(ddist.tlen, (n - i - ddist.llen) / tnh)
+            for j in range(end):
+                k = i + ddist.llen + j * tnh
+                pmfy[k] += self.pmfy[i] * ddist.tpmfy[j]
+        #compute the tail part
+        tn = self.tlen + ddist.tlen
+        tpmfy = [0.0] * n
+        for i in range(self.tlen):
+            start = max(0, ddist.llen - i * tnh)
+            for j in range(start, ddist.llen, tnh):
+                for k in range(tnh):
+                    tpmfy[i + j] = self.tpmfy[i] + ddist.pmfy[j * tnh + k]
+        for i in range(ddist.tlen):
+            start = max(0, self.llen - i * tnh)
+            for j in range(start, self.llen, tnh):
+                for k in range(tnh):
+                    tpmfy[i + j] = ddist.tpmfy[i] + self.pmfy[j * tnh + k]
+        for i in range(self.tlen):
+            for j in range(ddist.tlen):
+                tpmfy[i + j] = self.tpmfy[i] * self.tpmfy[j]
+        #return
+        return DDist(lb, pmfy, h=self.h, tmpfy=tpmfy, th=self.th)
 
