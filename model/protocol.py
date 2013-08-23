@@ -8,48 +8,6 @@ import scipy as sp
 
 from randgen import RVGen
 
-class DDist(object):
-    def getPmfxy(self):
-        x = []
-        for i in range(self.length):
-            x.append(self.lb + i * self.h)
-        return x, self._pmfy
-
-    def getCmfxy(self):
-        x = []
-        for i in range(self.length):
-            x.append(self.lb + i * self.h)
-        return x, self._cmfy
-
-    def plot(self, outfn):
-        fig = plt.figure()
-        axes = fig.add_subplot(211)
-        x, y = self.getPmfxy()
-        axes.plot(x, y)
-        axes = fig.add_subplot(212)
-        x, y = self.getCmfxy()
-        axes.plot(x, y)
-        fig.savefig('%s'%outfn)
-
-    @classmethod
-    def sample(cls, config, h=0.1, num=100000):
-        x = RVGen.run(config, num)
-        return cls.create(x, h)
-
-    @classmethod
-    def create(cls, samples, h=0.1):
-        li = int(min(samples) / h)
-        ui = int(max(samples) / h)
-        pmf = [0.0] * (ui - li + 1)
-        for x in samples:
-            i = int(x / h) - li
-            pmf[i] += 1
-        #normalize
-        for i in range(len(pmf)):
-            pmf[i] /= len(samples)
-        lb = li * h
-        return DDist(lb, pmf, h=h)
-
 def maxn(n, ddist):
     cmf = []
     for p in ddist.itercmf():
@@ -209,35 +167,6 @@ def getEBLatencyDist(n, ddist, sync, elen):
              elatency.mean, elatency.std)
 
 #####  TEST  ##### 
-
-def testAdd():
-    print '===== test add =====\n'
-    ddist0 = DDist.sample({'rv.name':'twostep','p':0.4, 'inf':-5, 'sup':10}, h=1)
-    print ddist0.getPmfxy()
-    print ddist0.getCmfxy()
-    ddist1 = ddist0 + ddist0
-    print ddist1.getPmfxy()
-    print ddist1.getCmfxy()
-    ddist1.plot('/tmp/test_add_twostep.pdf')
-    mu = 10
-    sigma = 3 
-    x = []
-    y = []
-    for i in range(100000):
-        x1 = np.random.normal(mu, sigma)
-        x2 = np.random.normal(mu, sigma)
-        x.append(x1)
-        x.append(x2)
-        y.append(x1 + x2)
-    ddist2 = DDist.create(y, h=0.5)
-    ddist3 = DDist.create(x, h=0.5)
-    ddist4 = ddist3 + ddist3
-    print ddist2.mean, ddist2.std, ddist2.lb, ddist2.ub
-    print ddist3.mean, ddist3.std
-    print ddist4.mean, ddist4.std, ddist4.lb, ddist4.ub
-    ddist2.plot('/tmp/test_add1.pdf')
-    ddist4.plot('/tmp/test_add2.pdf')
-    print '===== end =====\n'
 
 def testMaxn():
     print '===== test maxn =====\n'
