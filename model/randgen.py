@@ -42,6 +42,12 @@ class LogNormal(RandDist):
 
 class Pareto(RandDist):
     def __init__(self, config):
+        """Shifted type II pareto.
+
+        pdf = a / (x - inf + 1)**(a + 1)
+        mean = 1 / (a - 1) + inf
+
+        """
         RandDist.__init__(self, config)
         self.a = float(config['a'])
 
