@@ -2,7 +2,7 @@ import sys
 from math import floor, ceil
 
 import numpy as np
-import scipy as sp
+from scipy.misc import comb
 
 from ddist import DDist
 from randgen import RVGen
@@ -98,6 +98,8 @@ def quorum(n, f, ddist):
     """
     sTrip = ddist
     rTrip = ddist + ddist
+    print sTrip.lb, sTrip.tb, sTrip.ub, len(sTrip.pmfy), len(sTrip.tpmfy)
+    print rTrip.lb, rTrip.tb, rTrip.ub, len(rTrip.pmfy), len(rTrip.tpmfy)
     return cond(1.0 / n,
                 _quorumC(n - 1, n - f - 1, rTrip),
                 _quorumR(n, n - f, sTrip, rTrip))
@@ -108,54 +110,115 @@ def _quorumC(n, m, rTrip):
     for i in range(len(cmf)):
         p = rTrip.cmfy[i]
         for j in range(m, n + 1):
-            cmf[i] += sp.misc.comb(n, j) * p**j * (1 - p)**(n - j)
-    pmf = [cmf[0]]
-    for i in range(1, len(cmf)):
-        pmf.append(cmf[i] - cmf[i - 1])
+            cmf[i] += comb(n, j) * p**j * (1 - p)**(n - j)
     #tail disctribution
     tcmf = [0.0] * len(rTrip.tcmfy)
     for i in range(len(tcmf)):
         p = rTrip.tcmfy[i]
         for j in range(m, n + 1):
-            tcmf[i] += sp.misc.comb(n, j) * p**j * (1 - p)**(n - j)
-    tpmf = [tcmf[0] - cmf[-1]]
+            tcmf[i] += comb(n, j) * p**j * (1 - p)**(n - j)
+    #comput pmf
+    pmf = [cmf[0]]
     for i in range(1, len(cmf)):
-        tpmf.append(tcmf[i] - tcmf[i - 1])
+        pmf.append(cmf[i] - cmf[i - 1])
+    if len(tcmf) == 0:
+        tpmf = []
+    else:
+        tpmf = [tcmf[0] - cmf[-1]]
+        for i in range(1, len(tcmf)):
+            tpmf.append(tcmf[i] - tcmf[i - 1])
     return DDist(rTrip.lb, pmf, rTrip.h, tpmf, rTrip.th)
 
 def _quorumR(n, m, sTrip, rTrip):
     if m <= 2:
         raise ValueError(
             'We only consider cases when quorum size larger than 2')
-    cmf = [0.0] * rTrip.length
-    sli = int(sTrip.lb / sTrip.h)
-    sui = int(sTrip.ub / sTrip.h)
-    rli = int(rTrip.lb / rTrip.h)
-    rui = int(rTrip.ub / rTrip.h)
-    #There are two special one where leader == acceptor or acceptor ==
-    #learner, these two are half round trip
-    for i in range(0, sui - rli + 1):
-        s = sTrip.cmfi(i + rli - sli)
-        r = rTrip.cmfi(i)
+    scmf, stcmf = _paddingSTrip(sTrip, rTrip.lb, rTrip.tb, rTrip.ub)
+    cmf = []
+    tcmf = []
+    assert len(scmf) == len(rTrip.cmfy) and len(stcmf) == len(rTrip.tcmfy), \
+            'scmf.l = %s == %s = r.cmfy.l, tscmf.l = %s == %s = r.tcmfy.l' %(
+                len(scmf), len(rTrip.cmfy), len(stcmf), len(rTrip.tcmfy))
+    #scmf/cmf and stcmf/tcmf are aligned
+    for i in range(len(scmf)):
+        ps = scmf[i]; pr = rTrip.cmfy[i]
+        p = 0.0
         for j in range(m, n + 1):
-            #first case, both of half trip is less than t
-            cmf[i] += s**2 * sp.misc.comb(n - 2, j - 2) * \
-                    r**(j - 2) * (1 - r)**(n - j)
-            #second case, only one of them is less than t
-            cmf[i] += 2 * (s * (1 - s) * sp.misc.comb(n - 2, j - 1) * \
-                           r**(j - 1) * (1 - r)**(n - 2 - j + 1))
-            #third case, neither of them is less than t
-            cmf[i] += (1 - s)**2 * sp.misc.comb(n - 2, j) * \
-                    r**j * (1 - r)**(n - 2 - j)
-    for i in range(max(0, sui - rli + 1), len(cmf)):
-        r = rTrip.cmfi(i)
+            for k in range(3):
+                if n - 2 - j + k >= 0 and j - k >= 0:
+                    p += comb(2, k) * ps**k * (1 - ps)**(2 - k) * \
+                            comb(n - 2, j - k) * \
+                            pr**(j - k) * (1 - pr)**(n - 2 - j + k)
+        cmf.append(p)
+    for i in range(len(stcmf)):
+        ps = stcmf[i]; pr = rTrip.tcmfy[i]
+        p = 0.0
         for j in range(m, n + 1):
-            cmf[i] += sp.misc.comb(n - 2, j - 2) * \
-                    r**(j - 2) * (1 - r)**(n - j)
+            for k in range(3):
+                if n - 2 - j + k >= 0 and j - k >= 0:
+                    p += comb(2, k) * ps**k * (1 - ps)**(2 - k) * \
+                            comb(n - 2, j - k) * \
+                            pr**(j - k) * (1 - pr)**(n - 2 - j + k)
+        tcmf.append(p)
+    #compute pmf
     pmf = [cmf[0]]
     for i in range(1, len(cmf)):
         pmf.append(cmf[i] - cmf[i - 1])
-    return DDist(rTrip.lb, pmf, cmf, rTrip.h)
+    if len(tcmf) == 0:
+        tpmf = []
+    else:
+        tpmf = [tcmf[0] - cmf[-1]]
+        for i in range(1, len(tcmf)):
+            tpmf.append(tcmf[i] - tcmf[i - 1])
+    return DDist(rTrip.lb, pmf, rTrip.h, tpmf, rTrip.th)
+
+def _paddingSTrip(sTrip, lb, tb, ub):
+    assert sTrip.lb <= lb, 's.lb = %s <= %s = lb'%(sTrip.lb, lb)
+    assert sTrip.tb <= tb, 's.tb = %s <= %s = tb'%(sTrip.tb, tb)
+    assert sTrip.ub <= ub, 's.ub = %s <= %s = ub'%(sTrip.ub, ub)
+    #compute the front dist
+    cmf = []
+    ##sTrip.cmfy part
+    start = max(lb, sTrip.lb)
+    end = min(tb, sTrip.tb)
+    si = int((start - sTrip.lb + 0.5 * sTrip.h) / sTrip.h)
+    ei = int((end - sTrip.lb + 0.5 * sTrip.h) / sTrip.h)
+    cmf.extend(sTrip.cmfy[si:ei])
+    #print len(cmf), start, end, si, ei
+    ##sTrip.tcmfy part
+    start = max(lb, sTrip.tb)
+    end = min(tb, sTrip.ub)
+    si = int((start - sTrip.tb + 0.5 * sTrip.th) / sTrip.th)
+    ei = int((end - sTrip.tb + 0.5 * sTrip.th) / sTrip.th)
+    tnh = int((sTrip.th + 0.5 * sTrip.h) / sTrip.h)
+    for i in range(si, ei):
+        for j in range(tnh):
+            cmf.append(sTrip.tcmfy[i])
+    #print len(cmf), start, end, si, ei
+    ##left part
+    start = max(lb, sTrip.ub)
+    end = tb
+    n = int((end - start + 0.5 * sTrip.h) / sTrip.h)
+    for i in range(n):
+        cmf.append(1.0)
+    #print len(cmf), start, end, n
+    #compute the tail dist
+    tcmf = []
+    ##sTrip.tcmfy part
+    start = max(tb, sTrip.tb)
+    end = min(ub, sTrip.ub)
+    si = int((start - sTrip.tb + 0.5 * sTrip.th) / sTrip.th)
+    ei = int((end - sTrip.tb + 0.5 * sTrip.th) / sTrip.th)
+    tcmf.extend(sTrip.tcmfy[si:ei])
+    #print len(tcmf), start, end, si, ei
+    ##left part
+    start = max(tb, sTrip.ub)
+    end = ub
+    n = int((end - start + 0.5 * sTrip.th) / sTrip.th)
+    for i in range(n):
+        tcmf.append(1.0)
+    #print len(tcmf), start, end, n
+    return cmf, tcmf
 
 def oodelay(ddist, config):
     arrproc = config['arrival.process']
@@ -253,9 +316,9 @@ def testMaxn():
     ddist0 = DDist.create(x)
     ddist1 = DDist.create(y)
     ddist2 = maxn(n, ddist0)
-    print ddist0.mean, ddist0.std
-    print ddist1.mean, ddist1.std
-    print ddist2.mean, ddist2.std
+    print 'base', ddist0.mean, ddist0.std
+    print 'sim', ddist1.mean, ddist1.std
+    print 'ana', ddist2.mean, ddist2.std
     ddist1.plot('/tmp/test_maxn_normal1.pdf')
     ddist2.plot('/tmp/test_maxn_normal2.pdf')
     print '\n>>>pareto\n'
@@ -271,14 +334,14 @@ def testMaxn():
             if r > m:
                 m = r
         y.append(m)
-    ddist0 = DDist.create(x, tailprob=0.1, tnh=25)
-    ddist1 = DDist.create(y, tailprob=0.1, tnh=25)
+    ddist0 = DDist.create(x, tail=('p', 0.1), tnh=25)
+    ddist1 = DDist.create(y, tail=('p', 0.1), tnh=25)
     #ddist0 = DDist.create(x)
     #ddist1 = DDist.create(y)
     ddist2 = maxn(n, ddist0)
-    print ddist0.mean, ddist0.std, ddist0.lb, len(ddist0.pmfy), len(ddist0.tpmfy)
-    print ddist1.mean, ddist1.std, ddist1.lb, len(ddist1.pmfy), len(ddist1.tpmfy)
-    print ddist2.mean, ddist2.std, ddist2.lb, len(ddist2.pmfy), len(ddist2.tpmfy)
+    print 'base', ddist0.mean, ddist0.std, 'length', len(ddist0.pmfy), len(ddist0.tpmfy)
+    print 'sim', ddist1.mean, ddist1.std, 'length', len(ddist1.pmfy), len(ddist1.tpmfy)
+    print 'ana', ddist2.mean, ddist2.std, 'length', len(ddist2.pmfy), len(ddist2.tpmfy)
     ddist1.plot('/tmp/test_maxn_pareto1.pdf')
     ddist2.plot('/tmp/test_maxn_pareto2.pdf')
     print '===== end =====\n'
@@ -308,10 +371,10 @@ def testCond():
     ddist1 = DDist.create(x2)
     ddist2 = DDist.create(y)
     ddist3 = cond(p, ddist0, ddist1)
-    print ddist0.mean, ddist0.std
-    print ddist1.mean, ddist1.std
-    print ddist2.mean, ddist2.std
-    print ddist3.mean, ddist3.std
+    print 'base1', ddist0.mean, ddist0.std
+    print 'base2', ddist1.mean, ddist1.std
+    print 'sim', ddist2.mean, ddist2.std
+    print 'ana', ddist3.mean, ddist3.std
     ddist2.plot('/tmp/test_cond_norm1.pdf')
     ddist3.plot('/tmp/test_cond_norm2.pdf')
     print '\n>>> pareto\n'
@@ -331,81 +394,118 @@ def testCond():
             s = np.random.pareto(a2) + 10
             x2.append(s)
             y.append(s)
-    ddist0 = DDist.create(x1, tailprob=0.1, tnh=10)
-    ddist1 = DDist.create(x2, tailprob=0.1, tnh=10)
+    ddist0 = DDist.create(x1, tail=('p', 0.1), tnh=10)
+    ddist1 = DDist.create(x2, tail=('p', 0.1), tnh=10)
     ddist2 = DDist.create(y)
     ddist3 = cond(p, ddist0, ddist1)
-    print ddist0.mean, ddist0.std
-    print ddist1.mean, ddist1.std
-    print ddist2.mean, ddist2.std
-    print ddist3.mean, ddist3.std
+    print 'base1', ddist0.mean, ddist0.std
+    print 'base2', ddist1.mean, ddist1.std
+    print 'sim', ddist2.mean, ddist2.std
+    print 'ana', ddist3.mean, ddist3.std
     ddist2.plot('/tmp/test_cond_pareto1.pdf')
     ddist3.plot('/tmp/test_cond_pareto2.pdf')
     print '===== end =====\n'
 
 def testQuorum():
-    print '===== test quorum =====\n'
+    print '===== test quorum ====='
     lambd = 50
+    a = 1.1
     n = 5
     f = 2
-    x = []
-    yc = []
-    yr = []
-    y = []
+    x = {'gen' : [], 'exp':[], 'pareto':[]}
+    yc = {'gen' : [], 'exp':[], 'pareto':[]}
+    yr = {'gen' : [], 'exp':[], 'pareto':[]}
+    y = {'gen' : [], 'exp':[], 'pareto':[]}
+    dists = ['gen', 'exp', 'pareto']
     leader = 0
     def gen():
         r = np.random.random()
-        if r < 0.5:
-            return 5
+        if r < 0.2:
+            return 1
+        elif r < 0.4:
+            return 2
+        elif r < 0.6:
+            return 3
+        elif r < 0.8:
+            return 4
         else:
-            return 10
+            return 8
     for i in range(100000):
-        latencies = []
+        first = {}
+        second = {}
+        latencies = {'gen':[], 'exp':[], 'pareto':[]}
         learner = np.random.randint(n)
         for acceptor in range(n):
             if leader == acceptor:
-                first = 0
+                for k in dists:
+                    first[k] = 0
             else:
-                first = np.random.exponential(lambd)
-                #first = gen()
-                x.append(first)
+                first['gen'] = gen()
+                first['exp'] = np.random.exponential(lambd)
+                first['pareto'] = np.random.pareto(a)
+                for k in dists:
+                    x[k].append(first[k])
             if acceptor == learner:
-                second = 0
+                for k in dists:
+                    second[k] = 0
             else:
-                second = np.random.exponential(lambd)
-                #second = gen()
-                x.append(second)
-            latencies.append(first + second)
-        l = sorted(latencies)
-        y.append(l[n - f - 1])
-        if leader == learner:
-            assert l[0] == 0
-            yc.append(l[n - f - 1])
+                second['gen'] = gen()
+                second['exp'] = np.random.exponential(lambd)
+                second['pareto'] = np.random.pareto(a)
+                for k in dists:
+                    x[k].append(second[k])
+            for k in dists:
+                latencies[k].append(first[k] + second[k])
+        for k in dists:
+            l = sorted(latencies[k])
+            y[k].append(l[n - f - 1])
+            if leader == learner:
+                assert l[0] == 0
+                yc[k].append(l[n - f - 1])
+            else:
+                yr[k].append(l[n - f - 1])
+    for k in dists:
+        print '\n>>> %s\n'%k
+        if k == 'gen':
+            ddist0 = DDist.create(x[k], h=1, tail=('b', 4), tnh=4)
+        elif k == 'exp':
+            ddist0 = DDist.create(x[k], h=0.5)
         else:
-            yr.append(l[n - f - 1])
-    ddist0 = DDist.create(x, h=0.5)
-    ddist1 = DDist.create(y, h=0.5)
-    ddistc1 = DDist.create(yc, h=0.5)
-    ddistr1 = DDist.create(yr, h=0.5)
-    ddist2 = quorum(n, f, ddist0)
-    rtrip = ddist0 + ddist0
-    print ddist0.mean, ddist0.std
-    print rtrip.mean, rtrip.std, rtrip.lb, rtrip.ub
-    ddistc2 = _quorumC(n - 1, n - f - 1, rtrip)
-    ddistr2 = _quorumR(n, n - f, ddist0, rtrip)
-    print 'latency', ddist0.mean, ddist0.std
-    print 'quorum sim', ddist1.mean, ddist1.std
-    print 'quorum c sim', ddistc1.mean, ddistc1.std
-    print 'quorum r sim', ddistr1.mean, ddistr1.std
-    print 'quorum ana', ddist2.mean, ddist2.std
-    print 'quorum c ana', ddistc2.mean, ddistc2.std
-    print 'quorum r ana', ddistr2.mean, ddistr2.std
-    ddist1.plot('/tmp/test_quorum1.pdf')
-    ddistc1.plot('/tmp/test_quorumc1.pdf')
-    ddistr1.plot('/tmp/test_quorumr1.pdf')
-    ddist2.plot('/tmp/test_quorum2.pdf')
-    ddistc2.plot('/tmp/test_quorumc2.pdf')
-    ddistr2.plot('/tmp/test_quorumr2.pdf')
+            ddist0 = DDist.create(x[k], h=0.5, tail=('p', 0.1), tnh=50)
+            print 'created ddist0'
+        if k == 'gen':
+            ddist1 = DDist.create(y[k], h=1, tail=('b', 8), tnh=4)
+            ddistc1 = DDist.create(yc[k], h=1, tail=('b', 8), tnh=4)
+            ddistr1 = DDist.create(yr[k], h=1, tail=('b', 8), tnh=4)
+            print 'base pmf', ddist1.getPmfxy()
+            print 'base c pmf', ddistc1.getPmfxy()
+            print 'base r pmf', ddistr1.getPmfxy()
+        else:
+            ddist1 = DDist.create(y[k], h=0.5)
+            ddistc1 = DDist.create(yc[k], h=0.5)
+            ddistr1 = DDist.create(yr[k], h=0.5)
+        ddist2 = quorum(n, f, ddist0)
+        print 'computed quorum'
+        rtrip = ddist0 + ddist0
+        ddistc2 = _quorumC(n - 1, n - f - 1, rtrip)
+        ddistr2 = _quorumR(n, n - f, ddist0, rtrip)
+        if k == 'gen':
+            print 'q pmf', ddist2.getPmfxy()
+            print 'q c pmf', ddistc2.getPmfxy()
+            print 'q r pmf', ddistr2.getPmfxy()
+        print 'latency', ddist0.mean, ddist0.std
+        print 'quorum sim', ddist1.mean, ddist1.std
+        print 'quorum c sim', ddistc1.mean, ddistc1.std
+        print 'quorum r sim', ddistr1.mean, ddistr1.std
+        print 'quorum ana', ddist2.mean, ddist2.std
+        print 'quorum c ana', ddistc2.mean, ddistc2.std
+        print 'quorum r ana', ddistr2.mean, ddistr2.std
+        ddist1.plot('/tmp/test_quorum_%s1.pdf'%k)
+        ddistc1.plot('/tmp/test_quorumc_%s1.pdf'%k)
+        ddistr1.plot('/tmp/test_quorumr_%s1.pdf'%k)
+        ddist2.plot('/tmp/test_quorum_%s2.pdf'%k)
+        ddistc2.plot('/tmp/test_quorumc_%s2.pdf'%k)
+        ddistr2.plot('/tmp/test_quorumr_%s2.pdf'%k)
     print '===== end =====\n'
 
 def testoodelay():
@@ -454,9 +554,9 @@ def runoodelay(arrintvl, latency):
     return x, y
 
 def test():
-    testMaxn()
-    testCond()
-    #testQuorum()
+    #testMaxn()
+    #testCond()
+    testQuorum()
     #testoodelay()
 
 def main():

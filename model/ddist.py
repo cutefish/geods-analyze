@@ -193,15 +193,22 @@ class DDist(object):
         fig.savefig('%s'%outfn)
 
     @classmethod
-    def sample(cls, config, h=0.1, tailprob=0, tnh=1, num=100000):
+    def sample(cls, config, h=0.1, tail=('p', 0), tnh=1, num=100000):
         x = RVGen.run(config, num)
-        return cls.create(x, h, tailprob, tnh)
+        return cls.create(x, h, tail, tnh)
 
     @classmethod
-    def create(cls, samples, h=0.1, tailprob=0, tnh=1):
+    def create(cls, samples, h=0.1, tail=('p', 0), tnh=1):
+        """Create a ddist from sample.
+
+        @options:
+            tail = ('p', probability) or ('b', bound)
+
+        """
         li = int(floor(min(samples) / h))
         ui = int(floor(max(samples) / h))
         lb = li * h
+        ub = ui * h
         spmf = [0.0] * (ui - li + 1)
         for x in samples:
             i = int(floor(x / h)) - li
@@ -215,25 +222,33 @@ class DDist(object):
             scmf.append(scmf[i - 1] + spmf[i])
         #print 'scmf', scmf
         #compute tail
-        if tailprob == 0 or tnh == 1:
+        if (tail[0] == 'p' and tail[1] == 0) or \
+           (tail[0] == 'b' and tail[1] >=ub) or \
+           tnh == 1:
             return DDist(lb, spmf, h, [], h)
         else:
-            p = 0
-            n = 0
-            for i in range(len(spmf)):
-                p += spmf[i]
-                if p > 1 - tailprob:
-                    break
-                n += 1
-            #find the next position that mod th == 0
             th = tnh * h
-            tb = ceil(float(lb + n * h) / th) * th
+            if tail[0] == 'p':
+                tailprob = tail[1]
+                p = 0
+                n = 0
+                for i in range(len(spmf)):
+                    p += spmf[i]
+                    if p >= 1 - tailprob:
+                        break
+                    n += 1
+                #find the next position that mod th == 0
+                tb = ceil(float(lb + n * h) / th) * th
+            elif tail[0] == 'b':
+                tb = ceil(float(tail[1] / th) * th)
+            else:
+                raise ValueError('Unknown tail option %s'%tail[0])
             n = int((tb - lb) / h)
             pmf = list(spmf[0 : n])
             tlen = (len(spmf) - 1 - n) / tnh + 1
             tpmf = [0.0] * tlen
-            for i in range(n + 1, len(spmf)):
-                k = (i - n - 1) / tnh
+            for i in range(n, len(spmf)):
+                k = (i - n) / tnh
                 tpmf[k] += spmf[i]
             return DDist(lb, pmf, h, tpmf, th)
 
@@ -243,11 +258,9 @@ def testAdd():
     #two step
     print '\n>>>two step dist\n'
     ddist0 = DDist.sample({'rv.name':'twostep','p':0.4, 'inf':-5, 'sup':10}, h=1)
-    print ddist0.getPmfxy()
-    print ddist0.getCmfxy()
+    print 'base', ddist0.getPmfxy()
     ddist1 = ddist0 + ddist0
-    print ddist1.getPmfxy()
-    print ddist1.getCmfxy()
+    print 'add', ddist1.getPmfxy()
     ddist1.plot('/tmp/test_add_twostep.pdf')
     #two step long tail
     print '\n>>>two step tail dist\n'
@@ -271,13 +284,12 @@ def testAdd():
             else:
                 x.append(8)
         y.append(x[0] + x[1])
-    ddist0 = DDist.create(samples, h=1, tailprob=0.75, tnh=4)
-    print ddist0.getPmfxy(), ddist0.lb, ddist0.tb
-    ddist1 = DDist.create(y, h=1, tailprob=0.30, tnh=4)
-    print ddist1.getPmfxy(), ddist1.lb, ddist1.tb
+    ddist0 = DDist.create(samples, h=1, tail=('b', 4), tnh=4)
+    print 'base', ddist0.getPmfxy()
+    ddist1 = DDist.create(y, h=1, tail=('b', 8), tnh=4)
+    print 'add sim', ddist1.getPmfxy()
     ddist2 = ddist0 + ddist0
-    print ddist2.getPmfxy()
-    print ddist2.getCmfxy()
+    print 'add ana', ddist2.getPmfxy()
     #normal
     print '\n>>>normal dist\n'
     mu = 10
@@ -289,24 +301,22 @@ def testAdd():
         x2 = np.random.normal(mu, sigma)
         x.append(x1); x.append(x2)
         y.append(x1 + x2)
-    ddist1 = DDist.create(x, h=0.5)
-    ddist2 = DDist.create(y, h=0.5)
+    ddist1 = DDist.create(x, h=0.1)
+    ddist2 = DDist.create(y, h=0.1)
     ddist1.plot('/tmp/test_normal.pdf')
     ddist3 = ddist1 + ddist1
-    print ddist1.mean, ddist1.std
-    print ddist2.mean, ddist2.std
-    print ddist3.mean, ddist3.std
-    print ddist2.pmfy[0:10]
-    print ddist3.pmfy[0:10]
+    print 'base', ddist1.mean, ddist1.std
+    print 'add sim', ddist2.mean, ddist2.std
+    print 'add ana', ddist3.mean, ddist3.std
+    print 'add sim pmf', ddist2.pmfy[0:10]
+    print 'add ana pmf', ddist3.pmfy[0:10]
     ddist2.plot('/tmp/test_addnormal1.pdf')
     ddist3.plot('/tmp/test_addnormal2.pdf')
-    ddist4 = DDist.create(x, h=0.5, tailprob=0.1, tnh=5)
+    ddist4 = DDist.create(x, h=0.1, tail=('p', 0.1), tnh=5)
     ddist4.plot('/tmp/test_normal_tail.pdf')
     ddist5 = ddist4 + ddist4
-    print ddist4.mean, ddist4.std
-    print ddist5.mean, ddist5.std
-    print ddist4.pmfy[0:10]
-    print ddist5.pmfy[0:10]
+    print 'base tail', ddist4.mean, ddist4.std
+    print 'add tail', ddist5.mean, ddist5.std
     #pareto
     print '\n>>>pareto dist\n'
     a = 1.3
@@ -317,24 +327,22 @@ def testAdd():
     for i in range(1000000):
         y.append(x[i] + x[i + 1000000])
     ddist1 = DDist.create(x, h=0.5)
-    ddist2 = DDist.create(y, h=0.5, tailprob=0.1, tnh=100)
-    print 'pmf', ddist1.pmfy[0:10]
-    print 'pmf', ddist2.pmfy, ddist2.lb
+    ddist2 = DDist.create(y, h=0.5, tail=('p', 0.1), tnh=100)
+    print 'base pmf', ddist1.pmfy[0:10]
+    print 'add sim pmf', ddist2.pmfy[0:10]
     #ddist3 = ddist1 + ddist2
-    print ddist1.mean, ddist1.std
-    print ddist2.mean, ddist2.std, ddist2.lb, ddist2.tb
+    print 'base', ddist1.mean, ddist1.std
+    print 'add sim', ddist2.mean, ddist2.std
     #print ddist3.mean, ddist3.std
     ddist1.plot('/tmp/test_pareto.pdf')
     ddist2.plot('/tmp/test_addpareto1.pdf')
     #ddist3.plot('/tmp/test_addpareto2.pdf')
-    ddist4 = DDist.create(x, h=0.5, tailprob=0.1, tnh=100)
+    ddist4 = DDist.create(x, h=0.5, tail=('p', 0.1), tnh=100)
     ddist4.plot('/tmp/test_pareto_tail.pdf')
     ddist5 = ddist4 + ddist4
-    print 'pmf', ddist4.pmfy, ddist4.lb, ddist4.tb
-    print 'pmf', ddist5.pmfy, ddist5.lb, ddist5.tb
-    print ddist4.mean, ddist4.std
+    print 'base tail', ddist4.mean, ddist4.std
     ddist4.plot('/tmp/test_addpareto3.pdf')
-    print ddist5.mean, ddist5.std
+    print 'add ana tail', ddist5.mean, ddist5.std
     print '===== end =====\n'
 
 def test():
