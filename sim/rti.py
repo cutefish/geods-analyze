@@ -87,10 +87,6 @@ class RTI(object):
                     self, dstAddr, srcAddr, self.bwPktSize):
                     yield step
 
-    class TimeoutException(Exception):
-        """Notify timeout. """
-        pass
-
     def __init__(self, inetAddr):
         self.inetAddr = inetAddr
         self._thread = None
@@ -112,9 +108,63 @@ class RTI(object):
         tmoutEvt = Alarm.setOnetime(timeout)
         yield waitevent, self, (self._thread.finish, tmoutEvt)
         if tmoutEvt in self.eventsFired:
-            raise RTI.TimeoutException(
+            raise TimeoutException(
                 'rm=%s, args=%s, timeout=%s'
                 %(self._thread.rm, self._thread.args, timeout))
+
+class DLLNode(object):
+    """A double-linked list node for lru cache."""
+    def __init__(self, this):
+        self.this = this
+        self.prev = None
+        self.next = None
+
+class DLList(object):
+    """A double-linked list."""
+    def __init__(self):
+        self.head = None
+        self.tail = None
+
+    def append(self, node):
+        assert isinstance(node, DLLNode)
+        if self.head is None:
+            assert self.tail is None
+            self.head = node
+        else:
+            self.tail.next = node
+            node.prev = self.tail
+        self.tail = node
+
+    def remove(self, node):
+        assert isinstance(node, DLLNode)
+        if self.head is node:
+            if self.tail is node:
+                #node is the only element
+                self.head = None
+                self.tail = None
+            else:
+                #node is the head
+                node.next.prev = None
+                self.head = node.next
+        elif self.tail is node:
+            node.prev.next = None
+            self.tail = node.prev
+        else:
+            node.prev.next = node.next
+            node.next.prev = node.prev
+        node.prev = None
+        node.next = None
+
+    def __repr__(self):
+        reprstrs = []
+        curr = self.head
+        while curr is not None:
+            reprstrs.append(str(curr.this))
+            reprstrs.append(' -> ')
+            if curr.next is None:
+                break
+            curr = curr.next
+        return ''.join(reprstrs)
 
 class MsgXeiver(RTI):
     """MsgXeiver can send and receive message.
@@ -124,46 +174,81 @@ class MsgXeiver(RTI):
         check(tag)              --  check if messages with @tag has arrived
         wait(tag)               --  wait until some message with @tag arrived
     """
-    def __init__(self, inetAddr):
+    def __init__(self, inetAddr, maxntags=1000, tagbufsize=1000):
         RTI.__init__(self, inetAddr)
-        self.messages = {}          #{tag: [content]}
-        self.notifiers = {}         #{tag: event}
-        self.tagIgnoreRe = None     #filtering message
+        self.rtiMessages = {}          #{tag: [content]}
+        self.rtiTagUseQ = DLList()     #keep the tag put in order
+        self.rtiTagNodes = {}          #tag -> DDLNode
+        self.rtiNotifiers = {}         #{tag: event}
+        self.rtiMaxntags = maxntags
+        self.rtiTagbufsize = tagbufsize
 
     def _put(self, tag, content):
-        if self.tagIgnoreRe and \
-           self.tagIgnoreRe.match(tag):
-            return
-        if not self.messages.has_key(tag):
-            self.messages[tag] = []
-        self.messages[tag].append(content)
-        if tag in self.notifiers:
-            self.notifiers[tag].signal()
+        #add the tag
+        if not self.rtiMessages.has_key(tag):
+            self.rtiMessages[tag] = []
+            node = DLLNode(tag)
+            self.rtiTagNodes[tag] = node
+            self.rtiTagUseQ.append(node)
+        else:
+            node = self.rtiTagNodes[tag]
+            self.rtiTagUseQ.remove(node)
+            self.rtiTagUseQ.append(node)
+        #add the content
+        self.rtiMessages[tag].append(content)
+        #keep the message buffer under certain size
+        while len(self.rtiMessages[tag]) > self.rtiTagbufsize:
+            self.rtiMessages[tag].pop(0)
+        if tag in self.rtiNotifiers:
+            self.rtiNotifiers[tag].signal()
+        #keep tag number under certain size
+        while len(self.rtiMessages) > self.rtiMaxntags:
+            #remove empty tags
+            for t in self.rtiMessages.keys():
+                if len(self.rtiMessages[t]) == 0:
+                    node = self.rtiTagNodes[t]
+                    self.rtiTagUseQ.remove(node)
+                    del self.rtiTagNodes[t]
+                    del self.rtiMessages[t]
+            #remove tags that is least recently been put
+            head = self.rtiTagUseQ.head
+            toRemove = head.this
+            self.rtiTagUseQ.remove(head)
+            del self.rtiTagNodes[toRemove]
+            del self.rtiMessages[toRemove]
 
     def sendMsg(self, other, tag, content):
         self.invoke(other._put, tag, content).rtiCall()
 
-    def checkMsg(self, tag):
-        if tag in self.messages:
-            return len(self.messages[tag])
-        return False
+    def checkMsg(self, tags):
+        if not (isinstance(tags, list) or isinstance(tags, tuple)):
+            tags  = (tags, )
+        for tag in tags:
+            if tag in self.rtiMessages:
+                return len(self.rtiMessages[tag])
+        return 0
 
-    def waitMsg(self, tag, timeout=infinite):
-        if self.checkMsg(tag):
+    def waitMsg(self, tags, timeout=infinite):
+        if not (isinstance(tags, list) or isinstance(tags, tuple)):
+            tags  = (tags, )
+        if self.checkMsg(tags):
             return
-        if tag not in self.notifiers:
-            self.notifiers[tag] = SimEvent()
+        events = []
+        for tag in tags:
+            if tag not in self.rtiNotifiers:
+                event = SimEvent()
+                self.rtiNotifiers[tag] = event
+                events.append(event)
         timeoutEvt = Alarm.setOnetime(timeout)
-        yield waitevent, self, (self.notifiers[tag], timeoutEvt)
+        events.append(timeoutEvt)
+        yield waitevent, self, events
         if timeoutEvt in self.eventsFired:
-            raise TimeoutException('rti.waitMsg', tag)
-        del self.notifiers[tag]
-
-    def getContents(self, tag):
-        return self.messages.get(tag, [])
+            raise TimeoutException('rti.waitMsg', tags)
+        for tag in tags:
+            del self.rtiNotifiers[tag]
 
     def popContents(self, tag):
-        queue = self.messages.get(tag, [])
+        queue = self.rtiMessages.get(tag, [])
         while len(queue) != 0:
             yield queue.pop(0)
 
@@ -172,7 +257,7 @@ class MsgXeiver(RTI):
 class Server(Thread, MsgXeiver):
     def __init__(self, addr):
         Thread.__init__(self)
-        MsgXeiver.__init__(self, addr)
+        MsgXeiver.__init__(self, addr, maxntags=5)
 
     def add(self, x, y):
         print ('server %s computing %s + %s at %s' 
@@ -180,13 +265,16 @@ class Server(Thread, MsgXeiver):
         return x + y
 
     def run(self):
-        while True:
+        while now() < 100:
             if self.checkMsg('request'):
                 for content in self.popContents('request'):
                     print ('server %s received request %s at %s'
                            %(self.inetAddr, content, now()))
             for step in self.waitMsg('request'):
                 yield step
+        while now() < 200:
+            yield hold, self, 50
+            print '%s, messages: %s'%(self.inetAddr, self.rtiMessages)
 
 class Client(Thread, MsgXeiver):
     def __init__(self, addr, servers):
@@ -209,7 +297,7 @@ class Client(Thread, MsgXeiver):
                 print ('client %s get result %s from %s at %s' 
                        %(self.inetAddr, self.rtiRVal.get(),
                          server.inetAddr, now()))
-            except RTI.TimeoutException as e:
+            except TimeoutException as e:
                 print ('client %s timeout from %s at %s'
                        %(self.inetAddr, server.inetAddr, now()))
         #msgxeiver test
@@ -219,8 +307,16 @@ class Client(Thread, MsgXeiver):
                 print ('client %s send request to %s at %s' 
                        %(self.inetAddr, server.inetAddr, now()))
                 yield hold, self, 5
+        #test msg buf tag lru
+        for i in range(10):
+            for server in self.servers:
+                self.sendMsg(server, i, 'request')
+                print ('client %s send tag %s to %s at %s' 
+                       %(self.inetAddr, i, server.inetAddr, now()))
+                yield hold, self, 5
 
-def test():
+def testRTI():
+    print '\n>>> testRTI\n'
     configs = {
         'network.sim.class' : 'network.FixedLatencyNetwork',
         FixedLatencyNetwork.WITHIN_ZONE_LATENCY_KEY : 5,
@@ -235,6 +331,29 @@ def test():
     server1.start()
     client.start()
     simulate(until=1000)
+
+def testDLL():
+    print '\n>>> testDLL\n'
+    import random
+    nodes = []
+    for i in range(10):
+        nodes.append(DLLNode(i))
+    dll = DLList()
+    for node in nodes:
+        dll.append(node)
+        print 'append %s'%node.this
+        print dll
+    while len(nodes) > 0:
+        r = random.randint(0, len(nodes) - 1)
+        node = nodes[r]
+        nodes.remove(node)
+        dll.remove(node)
+        print 'remove %s'%node.this
+        print dll
+
+def test():
+    testDLL()
+    testRTI()
 
 
 def main():

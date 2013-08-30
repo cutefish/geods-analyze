@@ -11,7 +11,7 @@ from system import BaseSystem, ClientNode, StorageNode
 
 from impl.tpc import TPCTxnRunner, TPLProxy
 
-class MasterTPCSystem(BaseSystem):
+class MasterDLSystem(BaseSystem):
     """Deterministic replication system."""
     def newClientNode(self, idx, configs):
         return MTPCCNode(self, idx, configs)
@@ -19,7 +19,7 @@ class MasterTPCSystem(BaseSystem):
     def newStorageNode(self, cnode, index, configs):
         return MTPCSNode(cnode, index, configs)
 
-class MTPCCNode(ClientNode):
+class MDLCNode(ClientNode):
     def __init__(self, system, ID, configs):
         ClientNode.__init__(self, system, ID, configs)
 
@@ -39,7 +39,7 @@ class MTPCCNode(ClientNode):
         else:
             self.invoke(self.system.cnodes[0]._onTxnArrive, txn).rtiCall()
 
-class MTPCSNode(StorageNode):
+class MDLSNode(StorageNode):
     def __init__(self, cnode, index, configs):
         StorageNode.__init__(self, cnode, index, configs)
         self.proxies = {}       #{txn : proxy}
@@ -52,7 +52,7 @@ class MTPCSNode(StorageNode):
         follower.start()
         return follower
 
-class MTPCTxnRunner(TPCTxnRunner):
+class MDLTxnRunner(TPCTxnRunner):
     def __init__(self, snode, txn):
         TPCTxnRunner.__init__(self, snode, txn)
 
@@ -103,7 +103,7 @@ class MTPCTxnRunner(TPCTxnRunner):
             for follower in self.popContents('write'):
                 follwers.remove(follower)
 
-class MTPCFollower(Thread, MsgXeiver):
+class MDLFollower(Thread, MsgXeiver):
     def __init__(self, snode, txn):
         Thread.__init__(self)
         MsgXeiver.__init__(self, snode.ID)

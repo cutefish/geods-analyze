@@ -98,8 +98,6 @@ def quorum(n, f, ddist):
     """
     sTrip = ddist
     rTrip = ddist + ddist
-    print sTrip.lb, sTrip.tb, sTrip.ub, len(sTrip.pmfy), len(sTrip.tpmfy)
-    print rTrip.lb, rTrip.tb, rTrip.ub, len(rTrip.pmfy), len(rTrip.tpmfy)
     return cond(1.0 / n,
                 _quorumC(n - 1, n - f - 1, rTrip),
                 _quorumR(n, n - f, sTrip, rTrip))
@@ -224,38 +222,101 @@ def oodelay(ddist, config):
     arrproc = config['arrival.process']
     if arrproc == 'fixed':
         intvl = config['fixed.interval']
-        step = int(intvl / ddist.h)
-        cmf = []
-        for i in range(ddist.length):
-            curr = 1
-            prev = 0
-            for j in range(i, ddist.length, step):
-                prev = curr
-                curr *= ddist.cmfi(j)
-                if curr < 1e-10:
-                    break
-                if abs(prev - curr) / curr < 1e-6:
-                    break
-            cmf.append(curr)
-        pmf = [cmf[0]]
-        for i in range(1, len(cmf)):
-            pmf.append(cmf[i] - cmf[i - 1])
-        return DDist(ddist.lb, pmf, cmf, ddist.h)
+        return _oodelayFixedInterval(ddist, intvl)
     elif arrproc == 'poisson':
         lambd = config['poisson.lambda']
-        cmf = []
-        for i in range(ddist.length):
-            s = 0
-            for j in range(i, ddist.length):
-                s += (1 - ddist.cmfi(j)) * ddist.h
-            p = ddist.cmfi(i) * np.exp(-lambd * s)
-            cmf.append(p)
-        pmf = [cmf[0]]
-        for i in range(1, len(cmf)):
-            pmf.append(cmf[i] - cmf[i - 1])
-        return DDist(ddist.lb, pmf, cmf, ddist.h)
+        return _oodelayPoisson(ddist, lambd)
     else:
         raise ValueError('Arrival process %s not supported'%arrproc)
+
+def _oodelayFixedInterval(ddist, intvl):
+    cmf = []
+    tcmf = []
+    #front dist
+    for i in range(len(ddist.cmfy)):
+        curr = 1
+        prev = 0
+        #front part
+        start = ddist.lb + i * ddist.h
+        x = start
+        while x < ddist.tb:
+            j = int(floor((x - ddist.lb) / ddist.h))
+            prev = curr
+            curr *= ddist.cmfy[j]
+            x += intvl
+            if curr < 1e-10:
+                break
+            if abs(prev - curr) / curr < 1e-6:
+                break
+        #tail part
+        while x < ddist.ub:
+            j = int(floor((x - ddist.tb) / ddist.th))
+            prev = curr
+            curr *= ddist.tcmfy[j]
+            x += intvl
+            if curr < 1e-10:
+                break
+            if abs(prev - curr) / curr < 1e-6:
+                break
+        cmf.append(curr)
+    #tail dist
+    for i in range(len(ddist.tcmfy)):
+        curr = 1
+        prev = 0
+        start = ddist.tb + i * ddist.th
+        x = start
+        while x < ddist.ub:
+            j = int(floor((x - ddist.tb) / ddist.th))
+            prev = curr
+            curr *= ddist.tcmfy[j]
+            x += intvl
+            if curr < 1e-10:
+                break
+            if abs(prev - curr) / curr < 1e-6:
+                break
+        tcmf.append(curr)
+    pmf = [cmf[0]]
+    for i in range(1, len(cmf)):
+        pmf.append(cmf[i] - cmf[i - 1])
+    if len(tcmf) == 0:
+        return DDist(ddist.lb, pmf, ddist.h, [], ddist.th)
+    else:
+        tpmf = [tcmf[0] - cmf[-1]]
+        for i in range(1, len(tcmf)):
+            tpmf.append(tcmf[i] - tcmf[i - 1])
+        return DDist(ddist.lb, pmf, ddist.h, tpmf, ddist.th)
+
+def _oodelayPoisson(ddist, lambd):
+    cmf = []
+    tcmf = []
+    #front dist
+    for i in range(len(ddist.cmfy)):
+        s = 0
+        #front part
+        for j in range(i, len(ddist.cmfy)):
+            s += (1 - ddist.cmfy[j]) * ddist.h
+        #tail part
+        for j in range(len(ddist.tcmfy)):
+            s += (1 - ddist.tcmfy[j]) * ddist.th
+        p = ddist.cmfy[i] * np.exp(-lambd * s)
+        cmf.append(p)
+    #tail dist
+    for i in range(len(ddist.tcmfy)):
+        s = 0
+        for j in range(i, len(ddist.tcmfy)):
+            s += (1 - ddist.tcmfy[j]) * ddist.th
+        p = ddist.tcmfy[i] * np.exp(-lambd * s)
+        tcmf.append(p)
+    pmf = [cmf[0]]
+    for i in range(1, len(cmf)):
+        pmf.append(cmf[i] - cmf[i - 1])
+    if len(tcmf) == 0:
+        return DDist(ddist.lb, pmf, ddist.h, [], ddist.th)
+    else:
+        tpmf = [tcmf[0] - cmf[-1]]
+        for i in range(1, len(tcmf)):
+            tpmf.append(tcmf[i] - tcmf[i - 1])
+        return DDist(ddist.lb, pmf, ddist.h, tpmf, ddist.th)
 
 def getSLPLatencyDist(n, ddist, lambd):
     f = int(np.ceil(n / 2.0) - 1)
@@ -409,7 +470,7 @@ def testCond():
 def testQuorum():
     print '===== test quorum ====='
     lambd = 50
-    a = 1.1
+    a = 1.8
     n = 5
     f = 2
     x = {'gen' : [], 'exp':[], 'pareto':[]}
@@ -430,6 +491,7 @@ def testQuorum():
             return 4
         else:
             return 8
+
     for i in range(100000):
         first = {}
         second = {}
@@ -471,7 +533,7 @@ def testQuorum():
         elif k == 'exp':
             ddist0 = DDist.create(x[k], h=0.5)
         else:
-            ddist0 = DDist.create(x[k], h=0.5, tail=('p', 0.1), tnh=50)
+            ddist0 = DDist.create(x[k], h=0.5, tail=('p', 0.1), tnh=20)
             print 'created ddist0'
         if k == 'gen':
             ddist1 = DDist.create(y[k], h=1, tail=('b', 8), tnh=4)
@@ -481,9 +543,9 @@ def testQuorum():
             print 'base c pmf', ddistc1.getPmfxy()
             print 'base r pmf', ddistr1.getPmfxy()
         else:
-            ddist1 = DDist.create(y[k], h=0.5)
-            ddistc1 = DDist.create(yc[k], h=0.5)
-            ddistr1 = DDist.create(yr[k], h=0.5)
+            ddist1 = DDist.create(y[k], h=0.05)
+            ddistc1 = DDist.create(yc[k], h=0.05)
+            ddistr1 = DDist.create(yr[k], h=0.05)
         ddist2 = quorum(n, f, ddist0)
         print 'computed quorum'
         rtrip = ddist0 + ddist0
@@ -510,31 +572,83 @@ def testQuorum():
 
 def testoodelay():
     print '===== test oodelay =====\n'
+    intvl = 30
     def genexpointvl():
-        return np.random.exponential(50)
+        return np.random.exponential(intvl)
 
     def genfixedintvl():
-        return 50
+        return intvl
 
-    def latency():
-        return np.random.exponential(100)
+    lambd = 100
+    a = 1.8
+    m = 100
+    lb = 50
+    tb = 150
+    ub = 1000
+    def customlatency():
+        r = np.random.random()
+        if r < 0.2:
+            return 30
+        elif r < 0.4:
+            return 60
+        elif r < 0.6:
+            return 90
+        elif r < 0.8:
+            return 120
+        else:
+            return 180
 
-    x, y = runoodelay(genfixedintvl, latency)
-    ddist0 = DDist.create(x, h=0.5)
-    ddist1 = DDist.create(y, h=0.5)
-    ddist2 = oodelay(ddist0, {'arrival.process' : 'fixed', 'fixed.interval' : 50})
-    print ddist1.mean, ddist1.std
-    print ddist2.mean, ddist2.std
-    ddist1.plot('/tmp/test_ood_fixed1.pdf')
-    ddist2.plot('/tmp/test_ood_fixed2.pdf')
-    x, y = runoodelay(genexpointvl, latency)
-    ddist0 = DDist.create(x, h=0.5)
-    ddist1 = DDist.create(y, h=0.5)
-    ddist2 = oodelay(ddist0, {'arrival.process' : 'poisson', 'poisson.lambda' : 1.0 / 50})
-    print ddist1.mean, ddist1.std
-    print ddist2.mean, ddist2.std
-    ddist1.plot('/tmp/test_ood_expo1.pdf')
-    ddist2.plot('/tmp/test_ood_expo2.pdf')
+    def expolatency():
+        return np.random.exponential(lambd)
+
+    def paretolatency():
+        return np.random.pareto(a) + m
+
+    def uniformlatency():
+        r = np.random.random()
+        if r < 0.8:
+            rr = np.random.random()
+            return lb + rr * (tb - lb)
+        else:
+            rr = np.random.random()
+            return tb + rr * (ub - tb)
+
+    intvlkeys = {'fixed' : genfixedintvl, 
+                 'poisson' : genexpointvl}
+    intvlopts = {'fixed' : 'fixed.interval',
+                 'poisson' : 'poisson.lambda'}
+    latencykeys = {'custom' : customlatency,
+                   'expo' : expolatency,
+                   'pareto' : paretolatency,
+                   'uniform' : uniformlatency,
+                  }
+    for ik in intvlkeys:
+        for lk in latencykeys:
+            print '\n>>> %s, %s\n'%(ik, lk)
+            x, y = runoodelay(intvlkeys[ik], latencykeys[lk])
+            if lk == 'custom':
+                ddist0 = DDist.create(x, h=30, tail=('b', 120), tnh=2)
+            elif lk == 'expo':
+                ddist0 = DDist.create(x, h=0.5)
+            elif lk == 'uniform':
+                ddist0 = DDist.create(x, h=0.5, tail=('b', 150), tnh=10)
+            else:
+                ddist0 = DDist.create(x, h=0.5, tail=('p', 0.1), tnh=10)
+            if lk == 'custom':
+                ddist1 = DDist.create(y, h=30)
+            else:
+                ddist1 = DDist.create(y, h=0.5)
+            if ik == 'fixed':
+                ddist2 = oodelay(ddist0, {'arrival.process' : 'fixed',
+                                          'fixed.interval' : intvl})
+            else:
+                ddist2 = oodelay(ddist0, {'arrival.process' : 'poisson',
+                                          'poisson.lambda' : 1.0 / intvl})
+            print 'sim', ddist1.mean, ddist1.std
+            print 'ana', ddist2.mean, ddist2.std
+            if lk == 'custom':
+                print 'sim pmf', ddist1.getPmfxy()
+                print 'ana pmf', ddist2.getPmfxy()
     print '===== end =====\n'
 
 
@@ -554,10 +668,10 @@ def runoodelay(arrintvl, latency):
     return x, y
 
 def test():
-    #testMaxn()
-    #testCond()
+    testMaxn()
+    testCond()
     testQuorum()
-    #testoodelay()
+    testoodelay()
 
 def main():
     test()
