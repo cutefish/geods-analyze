@@ -80,3 +80,35 @@ class NormLatencyNetwork(FixedLatencyNetwork):
             l = self.crossLB if l < self.crossLB else l
             l = self.crossUB if l > self.crossUB else l
             return l
+
+class UniformLatencyNetwork(FixedLatencyNetwork):
+    WITHIN_ZONE_LATENCY_LB_KEY = 'uniform.latency.nw.within.zone.lb'
+    WITHIN_ZONE_LATENCY_UB_KEY = 'uniform.latency.nw.within.zone.ub'
+    CROSS_ZONE_LATENCY_LB_KEY = 'uniform.latency.nw.cross.zone.lb'
+    CROSS_ZONE_LATENCY_UB_KEY = 'uniform.latency.nw.cross.zone.ub'
+    def __init__(self, configs):
+        self.withinLB = \
+                configs[UniformLatencyNetwork.WITHIN_ZONE_LATENCY_LB_KEY]
+        self.withinUB = \
+                configs[UniformLatencyNetwork.WITHIN_ZONE_LATENCY_UB_KEY]
+        self.crossLB = \
+                configs[UniformLatencyNetwork.CROSS_ZONE_LATENCY_LB_KEY]
+        self.crossUB = \
+                configs[UniformLatencyNetwork.CROSS_ZONE_LATENCY_UB_KEY]
+
+    def getLatency(self, src, dst):
+        if src == dst:
+            return 0
+        srcZone = self.getZone(src)
+        dstZone = self.getZone(dst)
+        if srcZone == dstZone:
+            r = random.random()
+            l = self.withinLB + (self.withinUB - self.withinLB) * r
+            return l
+        else:
+            r = random.random()
+            l = self.crossLB + (self.crossUB - self.crossLB) * r
+            return l
+
+
+
