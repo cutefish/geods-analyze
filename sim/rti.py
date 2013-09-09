@@ -233,12 +233,7 @@ class MsgXeiver(RTI):
             tags  = (tags, )
         if self.checkMsg(tags):
             return
-        events = []
-        for tag in tags:
-            if tag not in self.rtiNotifiers:
-                event = SimEvent()
-                self.rtiNotifiers[tag] = event
-                events.append(event)
+        events = self.getWaitMsgEvents(tags)
         timeoutEvt = Alarm.setOnetime(timeout)
         events.append(timeoutEvt)
         yield waitevent, self, events
@@ -246,6 +241,15 @@ class MsgXeiver(RTI):
             raise TimeoutException('rti.waitMsg', tags)
         for tag in tags:
             del self.rtiNotifiers[tag]
+
+    def getWaitMsgEvents(self, tags):
+        events = []
+        for tag in tags:
+            if tag not in self.rtiNotifiers:
+                event = SimEvent()
+                self.rtiNotifiers[tag] = event
+                events.append(event)
+        return events
 
     def popContents(self, tag):
         queue = self.rtiMessages.get(tag, [])
