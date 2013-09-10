@@ -866,6 +866,21 @@ NETWORK_CONFIG = {
 }
 
 def testClassicPaxos():
+    pass
+
+def testMultiplePaxos():
+    pass
+
+def testFastPaxos():
+    pass
+
+def verifyResult(learners):
+    learner0 = learners[0]
+    for key, val in learner0.instances:
+        for lnr in learners:
+            assert val == lnr.instances[key], \
+                ('%s.instances[%s] = %s == %s = %s.instances[%s]'
+                 %(learner0.ID, key, val, lnr.instances[key], lnr.ID, key))
 
 def testPaxos():
     initialize()
@@ -897,7 +912,9 @@ def testPaxos():
 
 def test():
     logging.basicConfig(level=logging.DEBUG)
-    testPaxos()
+    testClassicPaxos()
+    testMultiplePaxos()
+    testFastPaxos()
 
 def main():
     test()
