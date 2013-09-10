@@ -744,7 +744,7 @@ class ProposerRunner(IDable, Thread, MsgXeiver):
         self.newFinishEvent = SimEvent()
         self.requests = []
         self.finishedProposers = []
-        self.nextInstanceID = -1
+        self.nextInstanceID = 0
         self.closed = False
         self.logger = logging.getLogger(self.__class__.__name__)
 
@@ -756,7 +756,8 @@ class ProposerRunner(IDable, Thread, MsgXeiver):
         self.newRequestEvent.signal()
 
     def getNextInstanceID(self):
-        self.nextInstanceID += 1
+        while self.nextInstanceID in self.learner.instances:
+            self.nextInstanceID += 1
         return self.nextInstanceID
 
     def run(self):
@@ -827,42 +828,46 @@ import random
 from network import UniformLatencyNetwork
 
 class ANode(object):
-    def __init__(self):
+    def __init__(self, i):
         self.inetAddr = 'anode'
-        self.ID = 'anode'
+        self.ID = 'anode%s'%i
 
 class PNode(object):
-    def __init__(self):
+    def __init__(self, i):
         self.inetAddr = 'pnode'
-        self.ID = 'pnode'
-
-class ProposerRunner(Proposer):
-    def run(self):
-        for step in self.propose(0, self.ID):
-            yield step
-
-class ProposerStarter(Thread):
-    def __init__(self, proposers, interval):
-        Thread.__init__(self)
-        self.proposers = proposers
+        self.ID = 'pnode%s'%i
+        
+class TestRunner(Thread):
+    def __init__(self, values, prunners, threshold, interval):
+        self.values = values
+        self.prunners = prunners
+        self.threshold = threshold
         self.interval = interval
-
+        
     def run(self):
-        while len(self.proposers) > 0:
-            r = random.random()
-            if r > 0.5:
-                proposer = self.proposers.pop(0)
-                proposer.start()
-            yield hold, self, self.interval
+        while len(self.values) > 0:
+            for prunner in self.prunners:
+                if len(self.values) == 0:
+                    break
+                r = random.random()
+                if r > self.threshold:
+                    value = self.values.pop(0)
+                    prunner.addRequest(value)
+            yield hold, self, self.interval    
+
+NUM_PNODES = 5
+NUM_ANODES = 7
+NETWORK_CONFIG = {
+    'network.sim.class' : 'network.UniformLatencyNetwork',
+    UniformLatencyNetwork.WITHIN_ZONE_LATENCY_LB_KEY: 0,
+    UniformLatencyNetwork.WITHIN_ZONE_LATENCY_UB_KEY: 0,
+    UniformLatencyNetwork.CROSS_ZONE_LATENCY_LB_KEY: 10,
+    UniformLatencyNetwork.CROSS_ZONE_LATENCY_UB_KEY: 1000,
+}
+
+def testClassicPaxos():
 
 def testPaxos():
-    configs = {
-        'network.sim.class' : 'network.UniformLatencyNetwork',
-        UniformLatencyNetwork.WITHIN_ZONE_LATENCY_LB_KEY: 0,
-        UniformLatencyNetwork.WITHIN_ZONE_LATENCY_UB_KEY: 0,
-        UniformLatencyNetwork.CROSS_ZONE_LATENCY_LB_KEY: 10,
-        UniformLatencyNetwork.CROSS_ZONE_LATENCY_UB_KEY: 1000,
-    }
     initialize()
     RTI.initialize(configs)
     numAcceptors = 7
