@@ -9,13 +9,13 @@ from core import Alarm, IDable, RetVal, Thread, TimeoutException, infinite
 from rti import RTI, MsgXeiver
 
 class PaxosRoundType(object):
-    NORMAL, FAST = range(2)
-    TYPES = ['normal', 'fast']
+    NONE, NORMAL, FAST = range(3)
+    TYPES = ['none', 'normal', 'fast']
 
 class VPickQuorum(object):
     """Quorum to pick value(e.g. phase 1b message from normal paxos)."""
-    NOTREADY, NONE, SINGLE, MULTIPLE, COLLISION = range(5)
-    STATES = ['NOTREADY', 'NONE', 'SINGLE', 'MULTIPLE', 'COLLISION']
+    NOTREADY, NONE, SINGLE, COL_SINGLE, COL_NONE = range(5)
+    STATES = ['NOTREADY', 'NONE', 'SINGLE', 'COL_SINGLE', 'COL_NONE']
     def __init__(self, size, qsize, fqsize, total, keyAccs=None):
         self.maxRnd = -1
         self.mrType = None
@@ -50,11 +50,12 @@ class VPickQuorum(object):
                 self.mrValues[value].add(voter)
         #check voter consistency
         if voter in self.votes:
-            #voter cannot vote different value for one round
             r, v = self.votes[voter]
-            assert r == rnd and v == value, \
-                    ('voter=%s, rnd=%s, pv=%s == %s=cv'
-                     %(voter, rnd, v, value))
+            if r == rnd:
+                #voter cannot vote different value for the same round
+                assert v == value, \
+                        ('voter=%s, rnd=%s, pv=%s == %s=cv'
+                         %(voter, rnd, v, value))
         else:
             self.votes[voter] = (rnd, value)
         #if we have enough vote for a quorum, and we have the keyset 
@@ -66,10 +67,11 @@ class VPickQuorum(object):
         if len(self.mrValues) == 0:
             self.state = self.__class__.NONE
         elif len(self.mrValues) == 1:
-            value = iter(self.mrValues.values()).next()
+            value = iter(self.mrValues.keys()).next()
             self.outstanding = value
             self.state =  self.__class__.SINGLE
         else:
+            #there is a collision
             for value, voters in self.mrValues.iteritems():
                 size = len(voters)
                 assert self.mrType == PaxosRoundType.FAST, \
@@ -81,13 +83,14 @@ class VPickQuorum(object):
                 required = self.fqsize
                 if size + self.total - len(self.votes) >= required:
                     #there can be only one value satisfy O4(v)
-                    assert self.outstanding is None, \
+                    assert self.outstanding is None or \
+                            self.outstanding == value, \
                             ('outstanding=%s, curr=%s, values={%s}'
-                             %(outstanding, value, self))
+                             %(self.outstanding, value, self))
                     self.outstanding = value
-                    self.state = self.__class__.MULTIPLE
+                    self.state = self.__class__.COL_SINGLE
             if self.outstanding is None:
-                self.state = self.__class__.COLLISION
+                self.state = self.__class__.COL_NONE
 
     @property
     def isReady(self):
@@ -118,8 +121,7 @@ class VPickQuorum(object):
                 %(self.maxRnd, PaxosRoundType.TYPES[self.mrType],
                   ', '.join(mrVStrs),
                   ', '.join([str((str(k), v))
-                             for k, v in self.votes.iteritems()]))
-                 ))
+                             for k, v in self.votes.iteritems()])))
 
 class VLearnQuorum(object):
     """Quorum to learn a value."""
@@ -150,6 +152,11 @@ class VLearnQuorum(object):
                     ('pRndType = %s == %s = cRndType'
                      %(PaxosRoundType.TYPES[self.rndTypes[rnd]], 
                        PaxosRoundType.TYPES[rtype]))
+        try:
+            if value not in self.rndValues[rnd]:
+                self.rndValues[rnd][value] = set([])
+        except TypeError:
+            print voter, rnd, rtype, value
         if value not in self.rndValues[rnd]:
             self.rndValues[rnd][value] = set([])
         self.rndValues[rnd][value].add(voter)
@@ -175,7 +182,7 @@ class VLearnQuorum(object):
 class Acceptor(IDable, Thread, MsgXeiver):
     """Paxos acceptor."""
     def __init__(self, parent, rndstep, coordinatedRecovery=False):
-        IDable.__init__(self, '%s/acceptor-%s'%parent.ID)
+        IDable.__init__(self, '%s/acceptor'%parent.ID)
         Thread.__init__(self)
         MsgXeiver.__init__(self, parent.inetAddr)
         self.parent = parent
@@ -227,7 +234,7 @@ class Acceptor(IDable, Thread, MsgXeiver):
             if iid not in self.rndNo:
                 self.rndNo[iid] = rndNo
                 self.vrnd[iid] = -1
-                self.vrtype[iid] = None
+                self.vrtype[iid] = PaxosRoundType.NONE
                 self.value[iid] = None
             elif rndNo > self.rndNo[iid]:
                 self.rndNo[iid] = rndNo
@@ -242,14 +249,18 @@ class Acceptor(IDable, Thread, MsgXeiver):
         for content in self.popContents('2a'):
             proposer, iid, crnd, value = content
             self.logger.debug('%s recv 2a message '
-                              'proposer=%s, iid=%s, crnd=%s, value=%s at %s'
+                              'proposer=%s, iid=%s, rnd=%s, value=%s at %s'
                               %(self.ID, proposer.ID, iid, crnd, value, now()))
             if iid not in self.rndNo:
                 self.rndNo[iid] = crnd
                 self.vrnd[iid] = -1
-                self.vrtype[iid] = None
+                self.vrtype[iid] = PaxosRoundType.NONE
                 self.value[iid] = None
-            if self.rndNo[iid] < crnd:
+            if self.rndNo[iid] <= crnd:
+                if self.vrnd[iid] == crnd:
+                    #proposer can only send one value in one round
+                    assert self.value[iid] == value, \
+                            ('pval = %s == %s = cval' %(self.value[iid], value))
                 #accept the value
                 self.rndNo[iid] = crnd
                 self.vrnd[iid] = crnd
@@ -267,12 +278,6 @@ class Acceptor(IDable, Thread, MsgXeiver):
                         self.sendMsg(lnr, '2b',
                                      (self, iid, self.vrnd[iid], 
                                       self.vrtype[iid], self.value[iid]))
-            elif self.rndNo[iid] == crnd:
-                #proposer can only send one value in one round
-                assert self.vrnd[iid] == crnd and \
-                        self.value[iid] == value, \
-                        ('prnd = %s == %s = crnd, pval = %s == %s = cval'
-                         %(self.vrnd[iid], crnd, self.value[iid], value))
             else:
                 #ignore this message if we are participating a new round
                 pass
@@ -288,7 +293,7 @@ class Acceptor(IDable, Thread, MsgXeiver):
             if iid not in self.rndNo:
                 self.rndNo[iid] = -1
                 self.vrnd[iid] = -1
-                self.vrtype[iid] = None
+                self.vrtype[iid] = PaxosRoundType.NONE
                 self.value[iid] = None
             #round zero is set to be a fast round
             if self.rndNo[iid] == -1:
@@ -296,28 +301,33 @@ class Acceptor(IDable, Thread, MsgXeiver):
                 self.vrnd[iid] = 0
                 self.vrtype[iid] = PaxosRoundType.FAST
                 self.value[iid] = value
+                self._sendProposeMsg(iid)
             elif self.rndNo[iid] == self.vrnd[iid] and \
                     self.vrtype[iid] == PaxosRoundType.FAST:
-                self.value[iid] = value
+                if self.value[iid] == None:
+                    #only receive the first propose
+                    self.value[iid] = value
+                    self._sendProposeMsg(iid)
             else:
                 #the latest round is not a fast round
-                #or we have already recieved a value for that fast round
                 pass
-            #send to coordinator or acceptors to resolve collision if any
-            if coordinatedRecovery:
-                #if coordinated recovery
-                self.sendMsg(self.coordinator, '2b',
+
+    def _sendProposeMsg(self, iid):
+        #send to coordinator or acceptors to resolve collision if any
+        if self.coordinatedRecovery:
+            #if coordinated recovery
+            self.sendMsg(self.coordinator, '2b',
+                         (self, iid, self.vrnd[iid],
+                          self.vrtype[iid], self.value[iid]))
+        else:
+            for acc in self.acceptors:
+                self.sendMsg(acc, '2b',
                              (self, iid, self.vrnd[iid], 
                               self.vrtype[iid], self.value[iid]))
-            else:
-                for acc in self.acceptors:
-                    self.sendMsg(acc, '2b',
-                                 (self, iid, self.vrnd[iid], 
-                                  self.vrtype[iid], self.value[iid]))
-            for lnr in self.learners:
-                self.sendMsg(lnr, '2b',
-                             (self, iid, self.vrnd[iid], 
-                              self.vrtype[iid], self.value[iid]))
+        for lnr in self.learners:
+            self.sendMsg(lnr, '2b',
+                         (self, iid, self.vrnd[iid], 
+                          self.vrtype[iid], self.value[iid]))
 
     def _recv2bMsg(self):
         for content in self.popContents('2b'):
@@ -333,28 +343,47 @@ class Acceptor(IDable, Thread, MsgXeiver):
                     self.total, self.keyAccs)
             self.iquorums[iid].add(acc, rnd, rtype, value)
             quorum = self.iquorums[iid]
-            if quorum.isReady:
-                if quorum.state == VPickQuorum.COLLISION:
-                    if quorum.hasKeyAccs:
-                        #choose the value
-                        chosen = 'null'
-                        for acc in quorum.keyAccs:
-                            r, v = quorum.votes[acc]
-                            if r == quorum.maxRnd:
-                                chosen = v
-                                break
-                        #send the chosen value
-                        for acc in self.acceptors:
-                            self.sendMsg(acc, '2a',
-                                         (self, iid,
-                                          rnd + self.rndstep, chosen))
-                        del self.iquorums[iid]
+            if quorum.isReady and quorum.hasKeyAccs:
+                #if there is a collision we need to propose something for the
+                #next round to make progress
+                if quorum.state == VPickQuorum.COL_SINGLE:
+                    chosen = quorum.outstanding
+                    self.logger.debug('%s resolve collision:'
+                                      'iid=%s, rnd=%s, type=%s, '
+                                      'value=%s, at %s'
+                                      %(self.ID, iid, rnd,
+                                        PaxosRoundType.TYPES[rtype], 
+                                        chosen, now()))
+                    for acc in self.acceptors:
+                        self.sendMsg(acc, '2a',
+                                     (self, iid,
+                                      rnd + self.rndstep, chosen))
+                elif quorum.state == VPickQuorum.COL_NONE:
+                    #choose the value
+                    chosen = 'null'
+                    for acc in quorum.keyAccs:
+                        r, v = quorum.votes[acc]
+                        if r == quorum.maxRnd:
+                            chosen = v
+                            break
+                    self.logger.debug('%s resolve collision:'
+                                      'iid=%s, rnd=%s, type=%s, '
+                                      'value=%s, at %s'
+                                      %(self.ID, iid, rnd,
+                                        PaxosRoundType.TYPES[rtype], 
+                                        chosen, now()))
+                    #send the chosen value
+                    for acc in self.acceptors:
+                        self.sendMsg(acc, '2a',
+                                     (self, iid,
+                                      rnd + self.rndstep, chosen))
                 else:
-                    del self.iquorums[iid]
+                    pass
+                del self.iquorums[iid]
 
 class Learner(IDable, Thread, MsgXeiver):
     def __init__(self, parent):
-        IDable.__init__(self, '%s/learner-%s'%parent.ID)
+        IDable.__init__(self, '%s/learner'%parent.ID)
         Thread.__init__(self)
         MsgXeiver.__init__(self, parent.inetAddr)
         self.parent = parent
@@ -363,6 +392,7 @@ class Learner(IDable, Thread, MsgXeiver):
         self.newInstanceEvent = SimEvent()
         self.total = -1
         self.closed = False
+        self.logger = logging.getLogger(self.__class__.__name__)
 
     def init(self, total):
         self.total = total
@@ -391,6 +421,11 @@ class Learner(IDable, Thread, MsgXeiver):
     def _recv2bMsg(self):
         for content in self.popContents('2b'):
             acc, iid, rnd, rtype, value = content
+            self.logger.debug('%s recv 2b message: acc=%s, iid=%s, '
+                              'rnd=%s, type=%s, value=%s at %s'
+                              %(self.ID, acc.ID, iid, rnd, 
+                                PaxosRoundType.TYPES[rtype],
+                                value, now()))
             if iid in self.instances:
                 #we have already learned the value
                 continue
@@ -399,9 +434,13 @@ class Learner(IDable, Thread, MsgXeiver):
             self.iquorums[iid].add(acc, rnd, rtype, value)
             #check iquorum status
             if self.iquorums[iid].isReady:
-                self.instances[iid] = self.iquorums[iid].finalval
+                finalrnd = self.iquorums[iid].finalrnd
+                finalval = self.iquorums[iid].finalval
+                self.instances[iid] = finalval
                 del self.iquorums[iid]
                 self.newInstanceEvent.signal()
+                self.logger.debug('%s "LEARNED": iid=%s, rnd=%s, value=%s'
+                                  %(self.ID, iid, finalrnd, finalval))
 
 class Coordinator(IDable, Thread, MsgXeiver):
     """A special proposer for fast rounds with starting round number 0.
@@ -413,7 +452,7 @@ class Coordinator(IDable, Thread, MsgXeiver):
         propose rounds once a while to ensure progress.
     """
     def __init__(self, parent, rndstep, timeout=infinite):
-        IDable.__init__(self, '%s/coordinator-%s'%parent.ID)
+        IDable.__init__(self, '%s/coordinator'%parent.ID)
         Thread.__init__(self)
         MsgXeiver.__init__(self, parent.inetAddr)
         self.parent = parent
@@ -421,6 +460,7 @@ class Coordinator(IDable, Thread, MsgXeiver):
         self.learner = None
         self.timeout = timeout
         self.iquorums = {}
+        self.chosenValues = {}      #to make sure always choose the same value
         self.rndstep = rndstep
         self.closed = False
         self.logger = logging.getLogger(self.__class__.__name__)
@@ -432,8 +472,16 @@ class Coordinator(IDable, Thread, MsgXeiver):
         self.qsize = self.total / 2 + 1
         self.fqsize = int(self.total - math.ceil(self.total / 3.0) + 1)
 
-    def close():
+    def close(self):
         self.closed = True
+
+    def cleanup(self):
+        for iid in self.iquorums.keys():
+            if iid in self.learner.instances:
+                del self.iquorums[iid]
+        for iid in self.chosenValues.keys():
+            if iid in self.learner.instances:
+                del self.chosenValues[iid]
 
     def run(self):
         if self.acceptors is None:
@@ -442,6 +490,7 @@ class Coordinator(IDable, Thread, MsgXeiver):
             try:
                 self._recv1bMsg()
                 self._recv2bMsg()
+                self.cleanup()
                 for step in self.waitMsg(['1b', '2b'], self.timeout):
                     yield step
             except TimeoutException as e:
@@ -474,13 +523,14 @@ class Coordinator(IDable, Thread, MsgXeiver):
                 for acc in self.acceptors:
                     self.sendMsg(acc, '2a', (iid, crnd, None))
             elif quorum.state == VPickQuorum.SINGLE or \
-                    quorum.state == VPickQuorum.MULTIPLE:
+                    quorum.state == VPickQuorum.COL_SINGLE:
                 #propose a possible candidate value
                 for acc in self.acceptors:
                     self.sendMsg(acc, '2a', (iid, crnd, quorum.outstanding))
             else:
-                #collision
-                self._recoverCollision()
+                #we have a collision and none of the values are possible
+                #candidate
+                self._recoverCollision(iid, quorum)
 
     def _recv2bMsg(self):
         for content in self.popContents('2b'):
@@ -492,18 +542,21 @@ class Coordinator(IDable, Thread, MsgXeiver):
                                 value, now()))
             assert rtype == PaxosRoundType.FAST, \
                     ('rtype = %s == fast' %(PaxosRoundType.TYPES[rtype]))
+            if iid in self.learner.instances:
+                continue
             if iid not in self.iquorums:
                 self.iquorums[iid] = VPickQuorum(
                     self.fqsize, self.qsize, self.fqsize, self.total)
             self.iquorums[iid].add(acc, rnd, rtype, value)
             quorum = self.iquorums[iid]
             if quorum.isReady:
-                #check if the latest round has collision
-                if quorum.state == VPickQuorum.COLLISION:
+                #to make progress, we propose a value for the new round
+                #no matter collision or not
+                if quorum.state == VPickQuorum.COL_NONE:
+                    #collision and none outstanding needs special treatment
                     self._recoverCollision(iid, quorum)
                 else:
-                    #to make progress, we propose a value for the new round
-                    #anyway
+                    #some value is outstanding
                     assert quorum.state != VPickQuorum.NONE, \
                             'quorum: %s'%quorum
                     for acc in self.acceptors:
@@ -512,8 +565,12 @@ class Coordinator(IDable, Thread, MsgXeiver):
                                       quorum.outstanding))
 
     def _recoverCollision(self, instanceID, quorum):
-        value = iter(sorted(quorum.mrValues.keys())).next()
         rnd = quorum.maxRnd
+        if (instanceID, rnd) in self.chosenValues:
+            value = self.chosenValues[(instanceID, rnd)]
+        else:
+            value = iter(sorted(quorum.mrValues.keys())).next()
+            self.chosenValues[(instanceID, rnd)] = value
         for acc in self.acceptors:
             self.sendMsg(acc, '2a', 
                          (self, instanceID, rnd + self.rndstep, value))
@@ -541,14 +598,14 @@ class Proposer(IDable, Thread, MsgXeiver):
         IDable.__init__(self, 
                         '%s/prop-%s'%(prunner.ID, str((instanceID, value))))
         Thread.__init__(self)
-        MsgXeiver.__init__(self, parent.inetAddr)
+        MsgXeiver.__init__(self, prunner.parent.inetAddr)
         assert rnd0 != 0        #saved for fast round and coordinator
         self.prunner = prunner
         self.rnd0 = rnd0
         self.rndstep = rndstep
         self.acceptors = acceptors
         self.learner = learner
-        self.instance = instanceID
+        self.instanceID = instanceID
         self.value = value
         self.timeout = timeout
         self.isFast = isFast
@@ -563,13 +620,11 @@ class Proposer(IDable, Thread, MsgXeiver):
 
     def propose(self):
         self.crnd = self.rnd0
-        self.quorum = VPickQuorum(self.qsize, self.qsize,
-                                  self.fqsize, self.total)
         #set pick value
         if self.single:
             #if we are the only proposer, it is certain that we will pick the
             #value we want.
-            pvalue = value
+            pvalue = self.value
         else:
             pvalue = None
         while True:
@@ -578,6 +633,9 @@ class Proposer(IDable, Thread, MsgXeiver):
                     break
                 #if we aren't already sure which value to pick
                 if pvalue is None:
+                    #initialize the pick quorum
+                    self.quorum = VPickQuorum(self.qsize, self.qsize,
+                                              self.fqsize, self.total)
                     #send 1a message
                     self._send1aMsg()
                     self.logger.debug('%s sent 1a message in round %s at %s'
@@ -597,7 +655,7 @@ class Proposer(IDable, Thread, MsgXeiver):
                 #send 2a message
                 self._send2aMsg(pvalue)
                 self.logger.debug('%s sent 2a message in round %s at %s'
-                                  %(self.ID, self.currRnd, now()))
+                                  %(self.ID, self.crnd, now()))
                 #check value
                 for step in self._checkValue():
                     yield step
@@ -607,7 +665,7 @@ class Proposer(IDable, Thread, MsgXeiver):
                 #if we see no progress(timeout), and we know of a later round
                 #we should start new round to make progress
                 self.logger.debug('%s iid=%s timedout and round %s fails;'
-                                  ' next: %s'
+                                  ' next: %s at %s'
                                  %(self.ID, self.instanceID, self.crnd, 
                                    self.crnd + self.rndstep, now()))
                 self.crnd += self.rndstep
@@ -631,17 +689,18 @@ class Proposer(IDable, Thread, MsgXeiver):
     def _recv1bMsg(self):
         while True:
             for content in self.popContents('1b'):
-                acc, iid, crnd, vrnd, value = content
+                acc, iid, crnd, vrnd, vtype, value = content
                 self.logger.debug('%s recv 1b message: acc=%s, iid=%s, '
-                                  'crnd=%s, vrnd=%s, value=%s at %s'
+                                  'crnd=%s, vrnd=%s, vtype=%s, value=%s at %s'
                                   %(self.ID, acc.ID, iid,
-                                    crnd, vrnd, value, now()))
+                                    crnd, vrnd, PaxosRoundType.TYPES[vtype],
+                                    value, now()))
                 assert iid == self.instanceID, \
                         'iid = %s == %s = instanceID'%(iid, self.instanceID)
                 assert vrnd <= crnd, \
                         'vrndNo = %s <= %s = rndNo' %(vrnd, crnd)
                 if crnd >= self.crnd:
-                    self.quorum.add(acc, vrnd, value)
+                    self.quorum.add(acc, vrnd, vtype, value)
                 else:
                     #ignore previous round messages
                     pass
@@ -649,8 +708,8 @@ class Proposer(IDable, Thread, MsgXeiver):
                 break
             if self.quorum.isReady:
                 break
-            events = self.getWaitMsgEvents('1b', self.timeout)
-            timeoutEvent = Alarm.setOnetime(timeout)
+            events = self.getWaitMsgEvents('1b')
+            timeoutEvent = Alarm.setOnetime(self.timeout)
             events.append(timeoutEvent)
             events.append(self.learner.newInstanceEvent)
             yield waitevent, self, events
@@ -664,12 +723,12 @@ class Proposer(IDable, Thread, MsgXeiver):
     def _pickValue(self):
         #pick a value from the quorum
         if self.quorum.state == VPickQuorum.NONE or \
-           self.quorum.state == VPickQuorum.COLLISION:
-            #for collision, we are not coordinator, so just let that round fail
-            #and propose a new value
+           self.quorum.state == VPickQuorum.COL_NONE:
+            #for the collision case, because we are not coordinator, 
+            #just let that round fail and propose a new value
             pvalue = self.value
         elif self.quorum.state == VPickQuorum.SINGLE or \
-                self.quorum.state == VPickQuorum.MULTIPLE:
+                self.quorum.state == VPickQuorum.COL_SINGLE:
             pvalue = self.quorum.outstanding
         else:
             raise ValueError('unknown state: %s' %self.quorum.state)
@@ -686,7 +745,7 @@ class Proposer(IDable, Thread, MsgXeiver):
     def _checkValue(self):
         while True:
             events = []
-            timeoutEvent = Alarm.setOnetime(timeout)
+            timeoutEvent = Alarm.setOnetime(self.timeout)
             events.append(timeoutEvent)
             events.append(self.learner.newInstanceEvent)
             yield waitevent, self, events
@@ -703,15 +762,15 @@ class Proposer(IDable, Thread, MsgXeiver):
         while True:
             try:
                 self._sendFastMsg()
-                for step in self._checkValue(instanceID):
+                for step in self._checkValue():
                     yield step
                 break
-            except Exception:
+            except (RoundFailException, TimeoutException):
                 pass
 
     def _sendFastMsg(self):
         for acc in self.acceptors:
-            self.sendMsg(acc, 'propose', (self, self.instnaceID, self.value))
+            self.sendMsg(acc, 'propose', (self, self.instanceID, self.value))
 
     def run(self):
         if self.isFast:
@@ -729,7 +788,7 @@ class ProposerRunner(IDable, Thread, MsgXeiver):
     """A thread that launches proposers."""
     def __init__(self, parent, rnd0, rndstep, acceptors, learner,
                  timeout=infinite, isFast=False, single=False):
-        IDable.__init__(self, '%s/proprunner-%s'%parent.ID)
+        IDable.__init__(self, '%s/proprunner'%parent.ID)
         Thread.__init__(self)
         MsgXeiver.__init__(self, parent.inetAddr)
         assert rnd0 != 0        #saved for fast round and coordinator
@@ -740,11 +799,12 @@ class ProposerRunner(IDable, Thread, MsgXeiver):
         self.learner = learner
         self.timeout = timeout
         self.isFast = isFast
+        self.single = single
         self.newRequestEvent = SimEvent()
         self.newFinishEvent = SimEvent()
         self.requests = []
         self.finishedProposers = []
-        self.nextInstanceID = 0
+        self.nextInstanceID = -1
         self.closed = False
         self.logger = logging.getLogger(self.__class__.__name__)
 
@@ -756,6 +816,7 @@ class ProposerRunner(IDable, Thread, MsgXeiver):
         self.newRequestEvent.signal()
 
     def getNextInstanceID(self):
+        self.nextInstanceID += 1
         while self.nextInstanceID in self.learner.instances:
             self.nextInstanceID += 1
         return self.nextInstanceID
@@ -795,18 +856,21 @@ def initPaxosCluster(pnodes, anodes,
     #on each pnode, there is a learner
     learners = []
     for pnode in pnodes:
-        learner = Learner(pnode)
-        learners.append(learner)
-        pnode.paxosLearner = learner
+        lnr = Learner(pnode)
+        learners.append(lnr)
+        pnode.paxosLearner = lnr
     #on the first pnode, there is a coordinator
     coordinator = Coordinator(pnodes[0], len(pnodes), timeout)
     pnodes[0].paxosCoordinator = coordinator
     #initialization
-    for acc in self.acceptors:
+    for acc in acceptors:
         acc.init(acceptors, learners, coordinator)
-    for lnr in self.learners:
-        lnr.init(acceptors, learners, coordinator)
+        acc.start()
+    for lnr in learners:
+        lnr.init(len(acceptors))
+        lnr.start()
     coordinator.init(acceptors, learners[0])
+    coordinator.start()
     #propose runners
     prunners = []
     if single:
@@ -815,13 +879,15 @@ def initPaxosCluster(pnodes, anodes,
                                  timeout, isFast, single)
         prunners.append(prunner)
         pnodes[0].paxosPRunner = prunner
+        prunner.start()
     else:
         for i, pnode in enumerate(pnodes):
-            prunner = ProposerRunner(pnode, i, len(pnodes), 
+            prunner = ProposerRunner(pnode, i + 1, len(pnodes), 
                                      acceptors, learners[i],
                                      timeout, isFast, single)
             prunners.append(prunner)
             pnode.paxosPRunner = prunner
+            prunner.start()
 
 ##### TEST #####
 import random
@@ -839,6 +905,7 @@ class PNode(object):
         
 class TestRunner(Thread):
     def __init__(self, values, prunners, threshold, interval):
+        Thread.__init__(self)
         self.values = values
         self.prunners = prunners
         self.threshold = threshold
@@ -859,62 +926,120 @@ NUM_PNODES = 5
 NUM_ANODES = 7
 NETWORK_CONFIG = {
     'network.sim.class' : 'network.UniformLatencyNetwork',
-    UniformLatencyNetwork.WITHIN_ZONE_LATENCY_LB_KEY: 0,
-    UniformLatencyNetwork.WITHIN_ZONE_LATENCY_UB_KEY: 0,
+    UniformLatencyNetwork.WITHIN_ZONE_LATENCY_LB_KEY: 10,
+    UniformLatencyNetwork.WITHIN_ZONE_LATENCY_UB_KEY: 500,
     UniformLatencyNetwork.CROSS_ZONE_LATENCY_LB_KEY: 10,
     UniformLatencyNetwork.CROSS_ZONE_LATENCY_UB_KEY: 1000,
 }
+THRESHOLD = 0.5
+INTERVAL = 500
+NUM_VALUES = 100
 
-def testClassicPaxos():
-    pass
-
-def testMultiplePaxos():
-    pass
-
-def testFastPaxos():
-    pass
+def initTest():
+    initialize()
+    RTI.initialize(NETWORK_CONFIG)
+    pnodes = []
+    for i in range(NUM_PNODES):
+        pnode = PNode(i)
+        pnodes.append(pnode)
+    anodes = []
+    for i in range(NUM_ANODES):
+        anode = ANode(i)
+        anodes.append(anode)
+    values = []
+    for i in range(NUM_VALUES):
+        values.append('proposal-%s'%i)
+    return pnodes, anodes, values
 
 def verifyResult(learners):
     learner0 = learners[0]
-    for key, val in learner0.instances:
+    logging.info('=== learned values: ===')
+    for key, val in learner0.instances.iteritems():
+        logging.info('%s: %s'%(key, val))
         for lnr in learners:
             assert val == lnr.instances[key], \
                 ('%s.instances[%s] = %s == %s = %s.instances[%s]'
                  %(learner0.ID, key, val, lnr.instances[key], lnr.ID, key))
+    logging.info('=====  VERIFICATION PASSED =====')
 
-def testPaxos():
-    initialize()
-    RTI.initialize(configs)
-    numAcceptors = 7
-    numProposers = 5
-    accparent = AcceptorParent()
-    proparent = ProposerParent()
-    acceptors = []
-    for i in range(numAcceptors):
-        acc = Acceptor(accparent, i)
-        acceptors.append(acc)
-    proposers = []
-    for i in range(numProposers):
-        prop = ProposerRunner(proparent, i, i, numProposers, acceptors, 2000)
-        proposers.append(prop)
-    for acceptor in acceptors:
-        acceptor.start()
-    starter = ProposerStarter(list(proposers), 300)
-    starter.start()
+def testClassicPaxos():
+    logging.info('===== START TEST CLASSIC PAXOS =====')
+    pnodes, anodes, values = initTest()
+    initPaxosCluster(pnodes, anodes, False, False, False, 1500)
+    prunners = []
+    learners = []
+    for pnode in pnodes:
+        try:
+            prunners.append(pnode.paxosPRunner)
+        except AttributeError:
+            pass
+        learners.append(pnode.paxosLearner)
+    testrunner = TestRunner(values, prunners, THRESHOLD, INTERVAL)
+    testrunner.start()
     simulate(until=1000000)
-    p0 = proposers[0]
-    value = proposers[0].instances[0]
-    for proposer in proposers:
-        assert proposer.instances[0] == value, \
-                ('%s.value = %s == %s = %s.value'
-                 %(proposer.ID, proposer.instances[0],
-                   value, p0.ID))
+    verifyResult(learners)
+    logging.info('===== END TEST CLASSIC PAXOS =====')
+
+def testMultiplePaxos():
+    logging.info('===== START TEST MULTI PAXOS =====')
+    pnodes, anodes, values = initTest()
+    initPaxosCluster(pnodes, anodes, False, False, True, 1500)
+    prunners = []
+    learners = []
+    for pnode in pnodes:
+        try:
+            prunners.append(pnode.paxosPRunner)
+        except AttributeError:
+            pass
+        learners.append(pnode.paxosLearner)
+    testrunner = TestRunner(values, prunners, THRESHOLD, INTERVAL)
+    testrunner.start()
+    simulate(until=1000000)
+    verifyResult(learners)
+    logging.info('===== END TEST MULTI PAXOS =====')
+
+def testFastPaxosCoordinated():
+    logging.info('===== START TEST FAST PAXOS COORDINATED=====')
+    pnodes, anodes, values = initTest()
+    initPaxosCluster(pnodes, anodes, True, True, False, 1500)
+    prunners = []
+    learners = []
+    for pnode in pnodes:
+        try:
+            prunners.append(pnode.paxosPRunner)
+        except AttributeError:
+            pass
+        learners.append(pnode.paxosLearner)
+    testrunner = TestRunner(values, prunners, THRESHOLD, INTERVAL)
+    testrunner.start()
+    simulate(until=1000000)
+    verifyResult(learners)
+    logging.info('===== END TEST FAST PAXOS COORDINATED=====')
+
+def testFastPaxosUncoordinated():
+    logging.info('===== START TEST FAST PAXOS UNCOORDINATED=====')
+    pnodes, anodes, values = initTest()
+    initPaxosCluster(pnodes, anodes, False, True, False, 1500)
+    prunners = []
+    learners = []
+    for pnode in pnodes:
+        try:
+            prunners.append(pnode.paxosPRunner)
+        except AttributeError:
+            pass
+        learners.append(pnode.paxosLearner)
+    testrunner = TestRunner(values, prunners, THRESHOLD, INTERVAL)
+    testrunner.start()
+    simulate(until=1000000)
+    verifyResult(learners)
+    logging.info('===== END TEST FAST PAXOS UNCOORDINATED=====')
 
 def test():
     logging.basicConfig(level=logging.DEBUG)
     testClassicPaxos()
     testMultiplePaxos()
-    testFastPaxos()
+    testFastPaxosCoordinated()
+    testFastPaxosUncoordinated()
 
 def main():
     test()
