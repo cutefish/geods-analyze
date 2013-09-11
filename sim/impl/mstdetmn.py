@@ -10,18 +10,15 @@ from rti import MsgXeiver
 from txns import TxnRunner
 from system import BaseSystem, ClientNode, StorageNode
 
-from impl.tpc import TPCTxnRunner, TPLProxy
-from impl.tide import DRSNode
-
-class MasterDeterministicSystem(BaseSystem):
+class MasterDetmnSystem(BaseSystem):
     """Deterministic system with master timestamp assignment."""
     def newClientNode(self, idx, configs):
-        return MDetCNode(self, idx, configs)
+        return MDCNode(self, idx, configs)
 
     def newStorageNode(self, cnode, index, configs):
-        return MDetSNode(cnode, index, configs)
+        return MDSNode(cnode, index, configs)
 
-class MDetCNode(ClientNode):
+class MDCNode(ClientNode):
     def __init__(self, system, ID, configs):
         ClientNode.__init__(self, system, ID, configs)
 
@@ -41,5 +38,5 @@ class MDetCNode(ClientNode):
         else:
             self.invoke(self.system.cnodes[0]._onTxnArrive, txn).rtiCall()
 
-class MDetSnode(DRSNode):
+class MDSnode(DRSNode):
     pass

@@ -6,9 +6,9 @@ from rand import RandInterval
 from system import BaseSystem, StorageNode
 from txns import TxnRunner
 
-class DynamicLockingSystem(BaseSystem):
+class CentralDyLockSystem(BaseSystem):
     """
-    Dynamic Locking System.
+    Centralized Dynamic Locking System.
     """
     def newStorageNode(self, cnode, index, configs):
         return DLSNode(cnode, index, configs)

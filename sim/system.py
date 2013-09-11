@@ -9,8 +9,9 @@ from SimPy.Simulation import Process, Resource, SimEvent
 from SimPy.Simulation import activate, now, initialize, simulate
 from SimPy.Simulation import waitevent, hold, request
 
-from core import Alarm, IDable, Thread
+from core import Alarm, IDable, Thread, infinite
 from data import Dataset
+from paxos import initPaxosCluster
 from perf import Profiler
 from rand import RandInterval
 from rti import RTI
@@ -20,8 +21,8 @@ class BaseSystem(Thread):
 
     The system contains several zones. Each zone has a ClientNode and several
     StorageNodes. The basic functionality of ClientNode is accepting client
-    requests and dispatch transactions to StorageNodes. StorageNode handles
-    transactions and returns the result back to ClientNode.
+    requests, dispatch transactions to StorageNodes and run paxos protocols.
+    StorageNode handles transactions and returns the result back to ClientNode.
 
     """
     RUNNING, CLOSING, CLOSED = range(3)
@@ -37,17 +38,8 @@ class BaseSystem(Thread):
         #system components
         self.cnodes = []
         self.snodes = {}
-        for i in range(configs['num.zones']):
-            node = self.newClientNode(i, configs)
-            self.cnodes.append(node)
-        for i in range(configs['num.zones']):
-            self.snodes[i] = []
-            for j in range(configs['num.storage.nodes.per.zone']):
-                node = self.newStorageNode(self.cnodes[i], j, configs)
-                self.snodes[i].append(node)
-        for i, cnode in enumerate(self.cnodes):
-            cnode.addSNodes(self.snodes[i])
-        self.initializeNodes()
+        self.createNodes()
+        self.initializeStorage()
         #txn execution
         self.txns = PriorityQueue()
         self.numTxnsSched = 0
@@ -61,11 +53,39 @@ class BaseSystem(Thread):
         self.lastPrintSimTime = 0
         self.lastPrintRealTime = 0
 
+    def createNodes(self):
+        for i in range(self.configs['num.zones']):
+            node = self.newClientNode(i, self.configs)
+            self.cnodes.append(node)
+        for i in range(self.configs['num.zones']):
+            self.snodes[i] = []
+            for j in range(self.configs['num.storage.nodes.per.zone']):
+                node = self.newStorageNode(self.cnodes[i], j, self.configs)
+                self.snodes[i].append(node)
+        for i, cnode in enumerate(self.cnodes):
+            cnode.addSNodes(self.snodes[i])
+
     def newClientNode(self, idx, configs):
         return ClientNode(self, idx, configs)
 
     def newStorageNode(self, cnode, index, configs):
         return StorageNode(cnode, index, configs)
+
+    def initializeStorage(self):
+        self.logger.info('Initializing storage')
+        for i, snodes in self.snodes.iteritems():
+            dataset = Dataset(i, self.configs['dataset.groups'])
+            cnode = self.cnodes[i]
+            #assign groups in a round robin manner
+            count = 0
+            for gid, group in dataset.groups.iteritems():
+                snode = snodes[count]
+                cnode.groupLocations[gid] = snode
+                snode.groups[gid] = group
+                self.logger.info('storage %s hosts group %s'
+                                 %(snode.ID, group))
+                count += 1
+                count = 0 if count == len(snodes) else count
 
     #schedule txn execution, called by generator
     def schedule(self, txn, at):
@@ -97,32 +117,11 @@ class BaseSystem(Thread):
                          %(txn.ID, now(),
                            self.numTxnsLoss, self.numTxnsSched))
 
-    #initialize system components
-    def initializeNodes(self):
-        self.logger.info('Initializing nodes')
-        for i, snodes in self.snodes.iteritems():
-            dataset = Dataset(i, self.configs['dataset.groups'])
-            cnode = self.cnodes[i]
-            #assign groups in a round robin manner
-            count = 0
-            for gid, group in dataset.groups.iteritems():
-                snode = snodes[count]
-                cnode.groupLocations[gid] = snode
-                snode.groups[gid] = group
-                self.logger.info('storage %s hosts group %s'
-                                 %(snode.ID, group))
-                count += 1
-                count = 0 if count == len(snodes) else count
-
     #system run, called by the sim main
     def run(self):
         #start client and storage nodes
-        for cnode in self.cnodes:
-            cnode.start()
-        for i, snodes in self.snodes.iteritems():
-            for snode in snodes:
-                snode.start()
-        self.state = BaseSystem.RUNNING
+        self.startupNodes()
+        self.startupPaxos()
         #the big while loop
         while True:
             if self.state == BaseSystem.RUNNING:
@@ -160,6 +159,18 @@ class BaseSystem(Thread):
                 sleep = Alarm.setOnetime(self.simThr)
                 yield waitevent, self, sleep
 
+    def startupNodes(self):
+        for cnode in self.cnodes:
+            cnode.start()
+        for i, snodes in self.snodes.iteritems():
+            for snode in snodes:
+                snode.start()
+        self.state = BaseSystem.RUNNING
+
+    def startupPaxos(self):
+        initPaxosCluster(
+            self.cnodes, self.cnodes, False, False, True, True, infinite)
+
     def printProgress(self):
         #do not overflood the output, so we only print when both the
         #simulation time and real time pass a certain threshold
@@ -186,8 +197,8 @@ class BaseSystem(Thread):
 class ClientNode(IDable, Thread, RTI):
     """Base client node.  
 
-    The main functionality of this base client node class is dispatch txns to
-    storage nodes.
+    Base client node accepts txn requests and dispatch them to storage nodes.
+    They are also hosts of paxos protocol entities.
 
     """
     def __init__(self, system, ID, configs):
@@ -204,6 +215,10 @@ class ClientNode(IDable, Thread, RTI):
         self.maxNumTxns = configs.get('max.num.txns.per.storage.node', 1024)
         self.shouldClose = False
         self.closeEvent = SimEvent()
+        #paxos entities
+        self.paxosPRunner = None
+        self.paxosAcceptor = None
+        self.paxosLearner = None
 
     def addSNodes(self, snodes):
         self.snodes.extend(snodes)
@@ -289,6 +304,9 @@ class ClientNode(IDable, Thread, RTI):
         for snode in self.groupLocations.values():
             if not snode.isFinished():
                 yield waitevent, self, snode.finish
+        self.paxosPRunner.close()
+        self.paxosAcceptor.close()
+        self.paxosLearner.close()
 
     def run(self):
         while not self.shouldClose:
@@ -309,7 +327,7 @@ class StorageNode(IDable, Thread, RTI):
         self.maxNumTxns = configs.get('max.num.txns.per.storage.node', 1024)
         self.pool = Resource(self.maxNumTxns, name='pool', unitName='thread')
         self.groups = {}    #{gid : group}
-        self.outstandingTxns = []
+        self.newTxns = []
         self.runningTxns = set([])
         self.shouldClose = False
         self.monitor = Profiler.getMonitor(self.ID)
@@ -321,7 +339,7 @@ class StorageNode(IDable, Thread, RTI):
 
     @property
     def load(self):
-        return len(self.runningTxns) + len(self.outstandingTxns)
+        return len(self.runningTxns) + len(self.newTxns)
 
     def close(self):
         self.shouldClose = True
@@ -331,11 +349,11 @@ class StorageNode(IDable, Thread, RTI):
         return self.load >= self.maxNumTxns
 
     def onTxnArrive(self, txn):
-        self.outstandingTxns.append(txn)
+        self.newTxns.append(txn)
         self.newTxnEvent.signal()
 
     def onTxnsArrive(self, txns):
-        self.outstandingTxns.extend(txns)
+        self.newTxns.extend(txns)
         self.newTxnEvent.signal()
 
     def newTxnRunner(self, txn):
@@ -366,7 +384,7 @@ class StorageNode(IDable, Thread, RTI):
             #    '%s start txn=%s, running=%s, outstanding=%s' 
             #    %(self.snode, self.txn.ID,
             #      '(%s)'%(','.join([t.ID for t in self.snode.runningTxns])),
-            #      '(%s)'%(','.join([t.ID for t in self.snode.outstandingTxns]))
+            #      '(%s)'%(','.join([t.ID for t in self.snode.newTxns]))
             #     ))
             if self.snode.isBusy():
                 self.snode.monitor.start(
@@ -393,8 +411,8 @@ class StorageNode(IDable, Thread, RTI):
         #the big while loop
         while not self.shouldClose:
             yield waitevent, self, (self.closeEvent, self.newTxnEvent)
-            while len(self.outstandingTxns) > 0:
-                txn = self.outstandingTxns.pop(0)
+            while len(self.newTxns) > 0:
+                txn = self.newTxns.pop(0)
                 thread = StorageNode.TxnStarter(self, txn)
                 thread.start()
             if self.shouldClose:
@@ -417,6 +435,9 @@ class FakeTxn(IDable):
         self.zoneID = zoneID
         r = random.random()
         self.gids = set([gid])
+
+    def __repr__(self):
+        return self.ID
 
 def test():
     try:

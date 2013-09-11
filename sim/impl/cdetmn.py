@@ -32,9 +32,9 @@ def StrictFCFSAlgo(lockable):
                 break
     return threads, state
 
-class CentrializedDeterministicSystem(BaseSystem):
+class CentralDetmnSystem(BaseSystem):
     """
-    Deterministic execution system.
+    Centrialized Deterministic System.
     """
     def __init__(self, configs):
         BaseSystem.__init__(self, configs)
@@ -90,8 +90,8 @@ class CDSNode(StorageNode):
         #the big while loop
         while True:
             yield waitevent, self, (self.closeEvent, self.newTxnEvent)
-            while len(self.outstandingTxns) > 0:
-                txn = self.outstandingTxns.pop()
+            while len(self.newTxns) > 0:
+                txn = self.newTxns.pop()
                 #add txn to the locking queue
                 self.lockingQueue.append(txn)
                 thread = StorageNode.TxnStarter(self, txn)
