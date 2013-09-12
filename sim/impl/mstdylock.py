@@ -9,6 +9,7 @@ from rti import MsgXeiver
 from txns import TxnRunner
 from system import BaseSystem, ClientNode, StorageNode
 
+from paxos import initPaxosCluster
 from impl.cdylock import DLTxnRunner
 
 class MasterDyLockSystem(BaseSystem):
@@ -19,54 +20,80 @@ class MasterDyLockSystem(BaseSystem):
     def newStorageNode(self, cnode, index, configs):
         return MDLSNode(cnode, index, configs)
 
+    def startupPaxos(self):
+        initPaxosCluster(
+            self.cnodes, self.cnodes, False, False, True, False, infinite)
+
 class MDLCNode(ClientNode):
     def __init__(self, system, ID, configs):
         ClientNode.__init__(self, system, ID, configs)
+        self.zoneID = ID
 
-    def _onTxnArrive(self, txn):
+    def onTxnArriveMaster(self, txn):
         waitIfBusy = self.configs.get('txn.wait.if.snodes.busy', False)
         snode = self.dispatchTxn(txn, waitIfBusy)
         if snode:
-            self.system.onTxnArrive(txn)
-            self.runningTxns[txn] = snode
+            self.txnsRunning[txn] = snode
             self.snodeLoads[snode].add(txn)
         else:
             self.system.onTxnLoss(txn)
 
     def onTxnArrive(self, txn):
+        self.system.onTxnArrive(txn)
         if self == self.system.cnodes[0]
-            self._onTxnArrive(txn)
+            self.onTxnArriveMaster(txn)
         else:
-            self.invoke(self.system.cnodes[0]._onTxnArrive, txn).rtiCall()
+            self.invoke(self.system.cnodes[0].onTxnArriveMaster, txn).rtiCall()
+
+    def onTxnDepartMaster(self, txn):
+        if txn not in self.txnsRunning:
+            return
+        snode = self.txnsRunning[txn]
+        self.snodeLoads[snode].remove(txn)
+        del self.txnsRunning[txn]
+
+    def onTxnDepart(self, txn):
+        if self == self.system.cnodes[0]:
+            self.onTxnDepartMaster(txn)
+        if txn.zoneID == self.zoneID:
+            self.system.onTxnDepart(txn)
 
 class MDLSNode(StorageNode):
     def __init__(self, cnode, index, configs):
         StorageNode.__init__(self, cnode, index, configs)
         self.nextUpdateIID = 0
-        self.index = index
+        self.zoneID = cnode.zoneID
+        self.committer = Committer(cnode, self)
 
     def newTxnRunner(self, txn):
         return MDLTxnRunner(self, txn)
 
     def run(self):
-        if self.index == 0:
+        if self.zoneID == 0:
             for step in StorageNode.run():
                 yield step
         else:
-            for step in runReplicaSNode():
-                yield step
+            self.committer.start()
 
-    def runReplicaSNode(self):
+class Committer(Thread, RTI):
+    def __init__(self, cnode, snode):
+        Thread.__init__(self)
+        RTI.__init__(self, snode.ID)
+        self.cnode = cnode
+
+    def run(self):
         while True:
             instances = self.cnode.paxosLearner.instances
             while self.nextUpdateIID in instances:
-                writeset = instances[self.lastUpdateIID]
+                writeset, txn = instances[self.lastUpdateIID]
+                #write values
                 for itemID, value in writeset.iteritems():
                     item = self.snode.groups[itemID.gid][itemID]
                     item.write(value)
-                    #we don't care about this performance here, so we make it
-                    #atomic
-                    pass
+                    yield hold, self, RandInterval.get(*txn.config.get(
+                        'commit.intvl.dist', ('fix', 0)))
+                #report txn done
+                self.invoke(self.cnode.onTxnDepart, self.txn).rtiCall()
                 self.nextUpdateIID += 1
             yield waitevent, self, self.cnode.paxosLearner.newInstanceEvent
 
@@ -76,7 +103,8 @@ class MDLTxnRunner(DLTxnRunner):
 
     def commit(self):
         #propose to the paxos agents
-        response = self.cnode.paxosPRunner.addRequest(self.writeset)
+        response = self.cnode.paxosPRunner.addRequest(
+            (self.writeset, self.txn))
         yield waitevent, self, response.finishedEvent
         #majority knows about this transaction
         #commit on local

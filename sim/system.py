@@ -41,7 +41,8 @@ class BaseSystem(Thread):
         self.createNodes()
         self.initializeStorage()
         #txn execution
-        self.txns = PriorityQueue()
+        self.txnsToRun = PriorityQueue()
+        self.txnsRunning = set([])
         self.numTxnsSched = 0
         self.numTxnsArrive = 0
         self.numTxnsDepart = 0
@@ -89,12 +90,13 @@ class BaseSystem(Thread):
 
     #schedule txn execution, called by generator
     def schedule(self, txn, at):
-        self.txns.put((at, txn))
+        self.txnsToRun.put((at, txn))
         self.numTxnsSched += 1
         self.logger.debug('scheduling %r at %s' %(txn, at))
 
     #txn arrive and depart metrics, called by cnodes
     def onTxnArrive(self, txn):
+        self.txnsRunning.add(txn)
         self.numTxnsArrive += 1
         self.monitor.start('%s.%s'%(BaseSystem.TXN_EXEC_KEY_PREFIX, txn.ID))
         self.logger.debug('Txn %s arrive in system at %s, progress=A:%s/%s'
@@ -102,11 +104,13 @@ class BaseSystem(Thread):
                            self.numTxnsArrive, self.numTxnsSched))
 
     def onTxnDepart(self, txn):
-        self.numTxnsDepart += 1
-        self.monitor.stop('%s.%s'%(BaseSystem.TXN_EXEC_KEY_PREFIX, txn.ID))
-        self.logger.debug('Txn %s depart from system at %s, progress=D:%s/%s'
-                         %(txn.ID, now(),
-                           self.numTxnsDepart, self.numTxnsSched))
+        if txn in self.txnsRunning:
+            self.numTxnsDepart += 1
+            self.monitor.stop('%s.%s'%(BaseSystem.TXN_EXEC_KEY_PREFIX, txn.ID))
+            self.logger.debug('Txn %s depart from system at %s, progress=D:%s/%s'
+                              %(txn.ID, now(),
+                                self.numTxnsDepart, self.numTxnsSched))
+            self.txnsRunning.remove(txn)
 
     def onTxnLoss(self, txn):
         self.numTxnsLoss += 1
@@ -125,9 +129,9 @@ class BaseSystem(Thread):
         #the big while loop
         while True:
             if self.state == BaseSystem.RUNNING:
-                if not self.txns.empty():
+                if not self.txnsToRun.empty():
                     #simulate txn arrive as scheduled
-                    at, txn = self.txns.get()
+                    at, txn = self.txnsToRun.get()
                     while now() < at:
                         nextArrive = Alarm.setOnetime(at - now())
                         yield waitevent, self, nextArrive
@@ -210,7 +214,7 @@ class ClientNode(IDable, Thread, RTI):
         self.snodes = []
         self.configs = configs
         self.groupLocations = {}
-        self.runningTxns = {}   #{txn : snode}
+        self.txnsRunning = {}   #{txn : snode}
         self.snodeLoads = {}    #{snode : set([txns])}
         self.maxNumTxns = configs.get('max.num.txns.per.storage.node', 1024)
         self.shouldClose = False
@@ -231,20 +235,20 @@ class ClientNode(IDable, Thread, RTI):
         snode = self.dispatchTxn(txn, waitIfBusy)
         if snode:
             self.system.onTxnArrive(txn)
-            self.runningTxns[txn] = snode
+            self.txnsRunning[txn] = snode
             self.snodeLoads[snode].add(txn)
         else:
             self.system.onTxnLoss(txn)
 
     #notify new txn depart, called by the storage nodes
     def onTxnDepart(self, txn):
-        if txn not in self.runningTxns:
+        if txn not in self.txnsRunning:
             #this is possible when multiple storage nodes handles the same
             #transaction.
             return
-        snode =  self.runningTxns[txn]
+        snode =  self.txnsRunning[txn]
         self.snodeLoads[snode].remove(txn)
-        del self.runningTxns[txn]
+        del self.txnsRunning[txn]
         self.system.onTxnDepart(txn)
 
     def dispatchTxn(self, txn, waitIfBusy):
@@ -297,7 +301,7 @@ class ClientNode(IDable, Thread, RTI):
         #periodically check if we still have txn running
         while True:
             yield hold, self, 100
-            if len(self.runningTxns) == 0:
+            if len(self.txnsRunning) == 0:
                 break
         for snode in self.groupLocations.values():
             snode.close()
@@ -328,7 +332,7 @@ class StorageNode(IDable, Thread, RTI):
         self.pool = Resource(self.maxNumTxns, name='pool', unitName='thread')
         self.groups = {}    #{gid : group}
         self.newTxns = []
-        self.runningTxns = set([])
+        self.txnsRunning = set([])
         self.shouldClose = False
         self.monitor = Profiler.getMonitor(self.ID)
         self.M_POOL_WAIT_PREFIX = '%s.pool.wait' %self.ID
@@ -339,7 +343,7 @@ class StorageNode(IDable, Thread, RTI):
 
     @property
     def load(self):
-        return len(self.runningTxns) + len(self.newTxns)
+        return len(self.txnsRunning) + len(self.newTxns)
 
     def close(self):
         self.shouldClose = True
@@ -383,7 +387,7 @@ class StorageNode(IDable, Thread, RTI):
             #self.snode.logger.debug(
             #    '%s start txn=%s, running=%s, outstanding=%s' 
             #    %(self.snode, self.txn.ID,
-            #      '(%s)'%(','.join([t.ID for t in self.snode.runningTxns])),
+            #      '(%s)'%(','.join([t.ID for t in self.snode.txnsRunning])),
             #      '(%s)'%(','.join([t.ID for t in self.snode.newTxns]))
             #     ))
             if self.snode.isBusy():
@@ -392,8 +396,8 @@ class StorageNode(IDable, Thread, RTI):
                 yield request, self, self.snode.pool
                 self.snode.monitor.stop(
                     '%s.%s'%(self.snode.M_POOL_WAIT_PREFIX, self.txn.ID))
-            #txn start running add to runningTxns
-            self.snode.runningTxns.add(self.txn)
+            #txn start running add to txnsRunning
+            self.snode.txnsRunning.add(self.txn)
             #start runner and wait for it to finish
             thread = self.snode.newTxnRunner(self.txn)
             thread.start()
@@ -403,7 +407,7 @@ class StorageNode(IDable, Thread, RTI):
             self.snode.monitor.stop(
                 '%s.%s'%(self.snode.M_TXN_RUN_PREFIX, self.txn.ID))
             #clean up
-            self.snode.runningTxns.remove(self.txn)
+            self.snode.txnsRunning.remove(self.txn)
             self.snode.runningThreads.remove(self)
             self.snode.invoke(self.snode.cnode.onTxnDepart, self.txn).rtiCall()
 
