@@ -3,23 +3,23 @@ import random
 from SimPy.Simulation import hold
 from SimPy.Simulation import now
 
-class FixedLatencyNetwork(object):
-    """A network with fixed latency.
+class IIDLatencyNetwork(object):
+    """A network with iid latency distribution.
 
-    There are two kinds of latency: cross-zone and within-zone, which are set
-    in the configs. 
-    
     Inet addresses are in the form of 'zone%s/ID'. All addresses with the same
     'zone%s' part have within-zone latency; otherwise, its cross-zone latency.
 
     """
-    WITHIN_ZONE_LATENCY_KEY = 'fixed.latency.nw.within.zone'
-    CROSS_ZONE_LATENCY_KEY = 'fixed.latency.nw.cross.zone'
+    WITHIN_KEY_PREFIX = 'nw.latency.within.zone'
+    CROSS_KEY_PREFIX = 'nw.latency.cross.zone'
     def __init__(self, configs):
-        self.withinZoneLatency = \
-                configs[FixedLatencyNetwork.WITHIN_ZONE_LATENCY_KEY]
-        self.crossZoneLatency = \
-                configs[FixedLatencyNetwork.CROSS_ZONE_LATENCY_KEY]
+        self.configs = configs
+
+    def getWithinZoneLatency(self):
+        raise NotImplementedError
+
+    def getCrossZoneLatency(self):
+        raise NotImplementedError
 
     def getZone(self, addr):
         return addr.split('/')[0]
@@ -30,13 +30,32 @@ class FixedLatencyNetwork(object):
         srcZone = self.getZone(src)
         dstZone = self.getZone(dst)
         if srcZone == dstZone:
-            return self.withinZoneLatency
+            return self.getWithinZoneLatency()
         else:
-            return self.crossZoneLatency
+            return self.getCrossZoneLatency()
 
     def sendPacket(self, pemproc, src, dst, pktSize):
         latency = self.getLatency(src, dst)
         yield hold, pemproc, latency
+
+
+class FixedLatencyNetwork(IIDLatencyNetwork):
+    """A network with fixed latency."""
+    FIXED_KEY = 'fixed'
+    def __init__(self, configs):
+        IIDLatencyNetwork.__init__(self, configs)
+        self.withinLatency = configs[
+            '%s.%s'%(IIDLatencyNetwork.WITHIN_KEY_PREFIX,
+                     FixedLatencyNetwork.FIXED_KEY)]
+        self.crossZoneLatency = configs[
+            '%s.%s'%(IIDLatencyNetwork.WITHIN_KEY_PREFIX,
+                     FixedLatencyNetwork.FIXED_KEY)]
+
+    def getWithinZoneLatency(self):
+        return self.withinLatency
+
+    def getCrossZoneLatency(self):
+        return self.crossZoneLatency
 
 class NormLatencyNetwork(FixedLatencyNetwork):
     WITHIN_ZONE_LATENCY_MU_KEY = 'norm.latency.nw.within.zone.mu'

@@ -33,13 +33,13 @@ class BaseSystem(Thread):
         self.logger = logging.getLogger(self.__class__.__name__)
         self.configs = configs
         self.monitor = Profiler.getMonitor('system')
-        #for correctness check
-        self.dataset = Dataset(0, configs['dataset.groups'])
         #system components
         self.cnodes = []
         self.snodes = {}
         self.createNodes()
         self.initializeStorage()
+        #for correctness check
+        self.dataset = Dataset(len(self.cnodes), configs['dataset.groups'])
         #txn execution
         self.txnsToRun = PriorityQueue()
         self.txnsRunning = set([])
@@ -114,7 +114,6 @@ class BaseSystem(Thread):
 
     def onTxnLoss(self, txn):
         self.numTxnsLoss += 1
-        self.numTxnsArrive += 1
         self.numTxnsDepart += 1
         self.monitor.observe('%s.%s'%(BaseSystem.TXN_LOSS_KEY_PREFIX, txn.ID), 0)
         self.logger.debug('Txn %s loss from system at %s, loss rate=%s/%s'
@@ -215,7 +214,6 @@ class ClientNode(IDable, Thread, RTI):
         self.configs = configs
         self.groupLocations = {}
         self.txnsRunning = {}   #{txn : snode}
-        self.snodeLoads = {}    #{snode : set([txns])}
         self.maxNumTxns = configs.get('max.num.txns.per.storage.node', 1024)
         self.shouldClose = False
         self.closeEvent = SimEvent()
@@ -226,17 +224,14 @@ class ClientNode(IDable, Thread, RTI):
 
     def addSNodes(self, snodes):
         self.snodes.extend(snodes)
-        for snode in self.snodes:
-            self.snodeLoads[snode] = set([])
 
     #notify new txn arrive, called by the system
     def onTxnArrive(self, txn):
+        self.system.onTxnArrive(txn)
         waitIfBusy = self.configs.get('txn.wait.if.snodes.busy', False)
         snode = self.dispatchTxn(txn, waitIfBusy)
         if snode:
-            self.system.onTxnArrive(txn)
             self.txnsRunning[txn] = snode
-            self.snodeLoads[snode].add(txn)
         else:
             self.system.onTxnLoss(txn)
 
@@ -247,41 +242,32 @@ class ClientNode(IDable, Thread, RTI):
             #transaction.
             return
         snode =  self.txnsRunning[txn]
-        self.snodeLoads[snode].remove(txn)
         del self.txnsRunning[txn]
         self.system.onTxnDepart(txn)
 
     def dispatchTxn(self, txn, waitIfBusy):
         #we assign txn to one of the storage nodes hosting the txn groups
         #if the storage node is busy, we find another one
-        #if all is busy and waitIfBusy == false, we throw if
+        #if all is busy and waitIfBusy == false, we throw it
         #otherwise, we find the least loaded one
-        self.logger.debug(
-            '%s dispatch: load=%s, max=%s' 
-            %(self.ID, '(%s)'%','.join(
-                ['{%s:%s}' %(snode.ID, ','.join([t.ID for t in loads]))
-                 for snode, loads in self.snodeLoads.iteritems()]),
-                self.maxNumTxns))
         hosts = self.getTxnHosts(txn)
+        bestHost = iter(self.snodes).next()
+        leastLoad = bestHost.load
         for host in hosts:
-            if len(self.snodeLoads[host]) < self.maxNumTxns:
-                self.invoke(host.onTxnArrive, txn).rtiCall()
+            if host.load < leastLoad:
+                leastLoad = host.load
+                bestHost = host
+            if host.load < self.maxNumTxns:
+                host.onTxnArrive(txn)
                 self.logger.debug('%s local dispatch %s to %s at %s'
                                   %(self.ID, txn.ID, host.ID, now()))
                 return host
         #all hosts are busy
-        leastLoadedNode = iter(self.snodes).next()
-        leastLoad = len(self.snodeLoads[leastLoadedNode])
-        for snode in self.snodes:
-            load = len(self.snodeLoads[leastLoadedNode])
-            if leastLoad < load:
-                leastLoad = load
-                leastLoadedNode = snode
         if waitIfBusy or leastLoad < self.maxNumTxns:
-            self.invoke(leastLoadedNode.onTxnArrive, txn).rtiCall()
+            bestHost.onTxnArrive(txn)
             self.logger.debug('%s busy dispatch %s to %s at %s'
-                             %(self.ID, txn.ID, leastLoadedNode, now()))
-            return leastLoadedNode
+                             %(self.ID, txn.ID, bestHost, now()))
+            return bestHost
         else:
             self.logger.debug('%s throw away %s at %s'
                              %(self.ID, txn.ID, now()))
@@ -390,12 +376,18 @@ class StorageNode(IDable, Thread, RTI):
             #      '(%s)'%(','.join([t.ID for t in self.snode.txnsRunning])),
             #      '(%s)'%(','.join([t.ID for t in self.snode.newTxns]))
             #     ))
+            self.snode.logger.debug('%s started starter for %s at %s'
+                                    %(self.snode.ID, self.txn, now()))
             if self.snode.isBusy():
+                self.snode.logger.debug('%s is busy for %s with load=%s at %s'
+                                        %(self.snode.ID, self.txn, self.snode.load, now()))
                 self.snode.monitor.start(
                     '%s.%s'%(self.snode.M_POOL_WAIT_PREFIX, self.txn.ID))
                 yield request, self, self.snode.pool
                 self.snode.monitor.stop(
                     '%s.%s'%(self.snode.M_POOL_WAIT_PREFIX, self.txn.ID))
+            self.snode.logger.debug('%s starting runner for %s at %s'
+                                    %(self.snode.ID, self.txn, now()))
             #txn start running add to txnsRunning
             self.snode.txnsRunning.add(self.txn)
             #start runner and wait for it to finish
@@ -456,8 +448,8 @@ def test():
     configs = {
         'network.sim.class' : 'network.FixedLatencyNetwork',
         'max.num.txns.per.storage.node' : 1,
-        'fixed.latency.nw.within.zone' : 0,
-        'fixed.latency.nw.cross.zone' : 0,
+        'nw.latency.within.zone.fixed' : 0,
+        'nw.latency.cross.zone.fixed' : 0,
     }
     groups = {}
     for i in range(numSNodes):
@@ -488,7 +480,7 @@ def test():
     system.profile()
     #calculate m/m/s loss rate
     lambd = float(TEST_NUM_TXNS) / TEST_TXN_ARRIVAL_PERIOD
-    mu = 1 / float(configs['fixed.latency.nw.within.zone'] + 100)
+    mu = 1 / float(configs['nw.latency.within.zone.fixed'] + 100)
     print erlangLoss(lambd / numZones / numSNodes, mu, 1)
     print erlangLoss(lambd / numZones, mu, numSNodes)
 

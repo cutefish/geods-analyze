@@ -5,7 +5,7 @@ from SimPy.Simulation import now, activate, stopSimulation
 from SimPy.Simulation import waitevent, hold
 from SimPy.Simulation import Process, SimEvent
 
-from core import Thread
+from core import Thread, infinite
 from rti import MsgXeiver
 from txns import TxnRunner
 from system import BaseSystem, ClientNode, StorageNode
@@ -28,6 +28,7 @@ class SLPaxosDetmnSystem(BaseSystem):
 class SPDCNode(ClientNode):
     def __init__(self, system, ID, configs):
         ClientNode.__init__(self, system, ID, configs)
+        self.zoneID = ID
 
     def onTxnArriveMaster(self, txn):
         waitIfBusy = self.configs.get('txn.wait.if.snodes.busy', False)
@@ -40,7 +41,7 @@ class SPDCNode(ClientNode):
 
     def onTxnArrive(self, txn):
         self.system.onTxnArrive(txn)
-        if self == self.system.cnodes[0]
+        if self == self.system.cnodes[0]:
             self.onTxnArriveMaster(txn)
         else:
             self.invoke(self.system.cnodes[0].onTxnArriveMaster, txn).rtiCall()
@@ -58,7 +59,7 @@ class SPDCNode(ClientNode):
         if txn.zoneID == self.zoneID:
             self.system.onTxnDepart(txn)
 
-class SPDSnode(CDSNode):
+class SPDSNode(CDSNode):
     def __init__(self, cnode, index, configs):
         CDSNode.__init__(self, cnode, index, configs)
         self.nextIID = 0
@@ -66,7 +67,7 @@ class SPDSnode(CDSNode):
     def run(self):
         while True:
             #handle new transaction
-            while len(self, newTxns) > 0:
+            while len(self.newTxns) > 0:
                 assert self.cnode.zoneID == 0, \
                         '%s got new txn, but not master'%self.ID
                 txn = self.newTxns.pop()
@@ -76,10 +77,13 @@ class SPDSnode(CDSNode):
             instances = self.cnode.paxosLearner.instances
             while self.nextIID in instances:
                 readyTxn = instances[self.nextIID]
-                self.lockingQueue.append(txn)
-                thread = StorageNode.TxnStarter(self, txn)
+                self.logger.debug('%s ready to start runner for %s'
+                                  %(self.ID, readyTxn))
+                self.lockingQueue.append(readyTxn)
+                thread = StorageNode.TxnStarter(self, readyTxn)
                 thread.start()
+                self.nextIID += 1
             #wait for new event
             yield waitevent, self, \
-                    (self.newTxnEvent, self.cnode.paxosLearner.newFinishEvent)
+                    (self.newTxnEvent, self.cnode.paxosLearner.newInstanceEvent)
 

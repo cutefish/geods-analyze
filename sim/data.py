@@ -30,6 +30,7 @@ class Item(Lockable):
         self.iid = itemID.iid
         self._version = -1
         self._value = None
+        self.lastWriteTxn = None
 
     @property
     def version(self):
@@ -49,7 +50,7 @@ class Item(Lockable):
         assert self.itemID == replica.itemID
         assert (self._version == replica._version) and \
                 (self._value == replica._value), \
-                '(%r, %r)'%(self, replica)
+                '(%r, %r, txn=%s)'%(self, replica, self.lastWriteTxn)
 
     def __repr__(self):
         return '%s:%s:%s %s'%(

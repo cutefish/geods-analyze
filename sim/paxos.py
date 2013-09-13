@@ -596,7 +596,8 @@ class Proposer(IDable, Thread, MsgXeiver):
                  instanceID, value, timeout=infinite,
                  isFast=False, isSingle=False):
         IDable.__init__(self,
-                        '%s/prop-%s'%(prunner.ID, str((instanceID, value))))
+                        '%s/prop-(%s, %s)'%(
+                            prunner.ID, str(instanceID), str(value)))
         Thread.__init__(self)
         MsgXeiver.__init__(self, prunner.parent.inetAddr)
         assert rnd0 != 0        #saved for fast round and coordinator

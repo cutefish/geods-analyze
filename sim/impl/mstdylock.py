@@ -4,9 +4,10 @@ from SimPy.Simulation import now, activate, stopSimulation
 from SimPy.Simulation import waitevent, hold
 from SimPy.Simulation import Process, SimEvent
 
-from core import Thread
-from rti import MsgXeiver
-from txns import TxnRunner
+from core import Thread, infinite
+from rand import RandInterval
+from rti import RTI, MsgXeiver
+from txns import Action, TxnRunner
 from system import BaseSystem, ClientNode, StorageNode
 
 from paxos import initPaxosCluster
@@ -40,7 +41,7 @@ class MDLCNode(ClientNode):
 
     def onTxnArrive(self, txn):
         self.system.onTxnArrive(txn)
-        if self == self.system.cnodes[0]
+        if self == self.system.cnodes[0]:
             self.onTxnArriveMaster(txn)
         else:
             self.invoke(self.system.cnodes[0].onTxnArriveMaster, txn).rtiCall()
@@ -61,7 +62,6 @@ class MDLCNode(ClientNode):
 class MDLSNode(StorageNode):
     def __init__(self, cnode, index, configs):
         StorageNode.__init__(self, cnode, index, configs)
-        self.nextUpdateIID = 0
         self.zoneID = cnode.zoneID
         self.committer = Committer(cnode, self)
 
@@ -70,7 +70,7 @@ class MDLSNode(StorageNode):
 
     def run(self):
         if self.zoneID == 0:
-            for step in StorageNode.run():
+            for step in StorageNode.run(self):
                 yield step
         else:
             self.committer.start()
@@ -80,31 +80,36 @@ class Committer(Thread, RTI):
         Thread.__init__(self)
         RTI.__init__(self, snode.ID)
         self.cnode = cnode
+        self.snode = snode
+        self.nextUpdateIID = 0
 
     def run(self):
         while True:
             instances = self.cnode.paxosLearner.instances
             while self.nextUpdateIID in instances:
-                writeset, txn = instances[self.lastUpdateIID]
+                txn = instances[self.nextUpdateIID]
                 #write values
-                for itemID, value in writeset.iteritems():
+                for action in txn.actions:
+                    if action.label == Action.READ:
+                        continue
+                    itemID = action.itemID
+                    value = action.attr
                     item = self.snode.groups[itemID.gid][itemID]
                     item.write(value)
                     yield hold, self, RandInterval.get(*txn.config.get(
                         'commit.intvl.dist', ('fix', 0)))
                 #report txn done
-                self.invoke(self.cnode.onTxnDepart, self.txn).rtiCall()
+                self.invoke(self.cnode.onTxnDepart, txn).rtiCall()
                 self.nextUpdateIID += 1
             yield waitevent, self, self.cnode.paxosLearner.newInstanceEvent
 
 class MDLTxnRunner(DLTxnRunner):
     def __init__(self, snode, txn):
-        TPCTxnRunner.__init__(self, snode, txn)
+        DLTxnRunner.__init__(self, snode, txn)
 
     def commit(self):
         #propose to the paxos agents
-        response = self.cnode.paxosPRunner.addRequest(
-            (self.writeset, self.txn))
+        response = self.snode.cnode.paxosPRunner.addRequest(self.txn)
         yield waitevent, self, response.finishedEvent
         #majority knows about this transaction
         #commit on local

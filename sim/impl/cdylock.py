@@ -1,3 +1,5 @@
+import logging
+
 from SimPy.Simulation import hold
 
 from locking import Lockable, LockThread
@@ -87,16 +89,23 @@ class DLTxnRunner(TxnRunner):
             yield step
 
     def commit(self):
+        wsStrings = []
         #write values to local group
         for itemID, value in self.writeset.iteritems():
             item = self.snode.groups[itemID.gid][itemID]
             item.write(value)
+            if self.logger.isEnabledFor(logging.DEBUG):
+                wsStrings.append('(%s, %s)'%(itemID, value))
             yield hold, self, RandInterval.get(*self.txn.config.get(
                 'commit.intvl.dist', ('fix', 0)))
+        if self.logger.isEnabledFor(logging.DEBUG):
+            self.logger.debug('%s commit {%s}'
+                              %(self.ID, ', '.join([s for s in wsStrings])))
         #write to the original atomically
         dataset = self.snode.system.dataset
         for itemID, value in self.writeset.iteritems():
             dataset[itemID].write(value)
+            dataset[itemID].lastWriteTxn = self.txn
         #release locks
         for step in self.releaseLocks():
             yield step

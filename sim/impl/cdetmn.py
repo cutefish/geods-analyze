@@ -1,3 +1,5 @@
+import logging
+
 from SimPy.Simulation import SimEvent
 from SimPy.Simulation import hold, waitevent, now
 
@@ -148,6 +150,7 @@ class DETxnRunner(TxnRunner):
         while index != 0:
             try:
                 index = self.snode.lockingQueue.index(self.txn)
+                self.logger.debug('%s current position at %s' %(self.ID, index))
                 if index == 0:
                     break
             except:
@@ -204,17 +207,24 @@ class DETxnRunner(TxnRunner):
         yield hold, self
 
     def commit(self):
+        wsStrings = []
         for itemID, value in self.writeset.iteritems():
             item = self.snode.groups[itemID.gid][itemID]
             assert self.ts > item.version, \
                     'txn=%s, itemID=%s, curr=%s, prev=%s' \
                     %(self.txn.ID, itemID, self.ts, item.version)
             item.write(value, self.ts)
+            if self.logger.isEnabledFor(logging.DEBUG):
+                wsStrings.append('(%s, %s)'%(itemID, value))
             yield hold, self, RandInterval.get(*self.txn.config.get(
                 'commit.intvl.dist', ('fix', 0)))
+        if self.logger.isEnabledFor(logging.DEBUG):
+            self.logger.debug('%s commit {%s}'
+                              %(self.ID, ', '.join([s for s in wsStrings])))
         dataset = self.snode.system.dataset
         for itemID, value in self.writeset.iteritems():
             dataset[itemID].write(value, self.ts)
+            dataset[itemID].lastWriteTxn = self.txn
         for lock in self.locks:
             for step in self.unlock(lock):
                 yield step
