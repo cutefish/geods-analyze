@@ -31,11 +31,9 @@ class MDLCNode(ClientNode):
         self.zoneID = ID
 
     def onTxnArriveMaster(self, txn):
-        waitIfBusy = self.configs.get('txn.wait.if.snodes.busy', False)
-        snode = self.dispatchTxn(txn, waitIfBusy)
+        snode = self.dispatchTxn(txn)
         if snode:
-            self.txnsRunning[txn] = snode
-            self.snodeLoads[snode].add(txn)
+            self.txnsRunning.add(txn)
         else:
             self.system.onTxnLoss(txn)
 
@@ -49,9 +47,7 @@ class MDLCNode(ClientNode):
     def onTxnDepartMaster(self, txn):
         if txn not in self.txnsRunning:
             return
-        snode = self.txnsRunning[txn]
-        self.snodeLoads[snode].remove(txn)
-        del self.txnsRunning[txn]
+        self.txnsRunning.remove(txn)
 
     def onTxnDepart(self, txn):
         if self == self.system.cnodes[0]:

@@ -10,6 +10,7 @@ dataset.groups = {
 #system configs
 num.zones = 2
 num.storage.nodes.per.zone = 2
+max.num.txns.in.system = 1024
 max.num.txns.per.storage.node = 1024
 
 ##network configs

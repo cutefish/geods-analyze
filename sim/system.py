@@ -7,7 +7,7 @@ from Queue import PriorityQueue
 import numpy as np
 from SimPy.Simulation import Process, Resource, SimEvent
 from SimPy.Simulation import activate, now, initialize, simulate
-from SimPy.Simulation import waitevent, hold, request
+from SimPy.Simulation import waitevent, hold, request, release
 
 from core import Alarm, IDable, Thread, infinite
 from data import Dataset
@@ -41,6 +41,8 @@ class BaseSystem(Thread):
         #for correctness check
         self.dataset = Dataset(len(self.cnodes), configs['dataset.groups'])
         #txn execution
+        self.allowOverLoad = configs.get('system.allow.overload', False)
+        self.maxNumTxns = configs.get('max.num.txns.in.system', 1024)
         self.txnsToRun = PriorityQueue()
         self.txnsRunning = set([])
         self.numTxnsSched = 0
@@ -97,11 +99,18 @@ class BaseSystem(Thread):
     #txn arrive and depart metrics, called by cnodes
     def onTxnArrive(self, txn):
         self.txnsRunning.add(txn)
-        self.numTxnsArrive += 1
         self.monitor.start('%s.%s'%(BaseSystem.TXN_EXEC_KEY_PREFIX, txn.ID))
         self.logger.debug('Txn %s arrive in system at %s, progress=A:%s/%s'
                          %(txn.ID, now(),
                            self.numTxnsArrive, self.numTxnsSched))
+
+    def onTxnLoss(self, txn):
+        self.numTxnsLoss += 1
+        self.numTxnsDepart += 1
+        self.monitor.observe('%s.%s'%(BaseSystem.TXN_LOSS_KEY_PREFIX, txn.ID), 0)
+        self.logger.debug('Txn %s loss from system at %s, loss rate=%s/%s'
+                         %(txn.ID, now(),
+                           self.numTxnsLoss, self.numTxnsSched))
 
     def onTxnDepart(self, txn):
         if txn in self.txnsRunning:
@@ -111,14 +120,6 @@ class BaseSystem(Thread):
                               %(txn.ID, now(),
                                 self.numTxnsDepart, self.numTxnsSched))
             self.txnsRunning.remove(txn)
-
-    def onTxnLoss(self, txn):
-        self.numTxnsLoss += 1
-        self.numTxnsDepart += 1
-        self.monitor.observe('%s.%s'%(BaseSystem.TXN_LOSS_KEY_PREFIX, txn.ID), 0)
-        self.logger.debug('Txn %s loss from system at %s, loss rate=%s/%s'
-                         %(txn.ID, now(),
-                           self.numTxnsLoss, self.numTxnsSched))
 
     #system run, called by the sim main
     def run(self):
@@ -134,8 +135,13 @@ class BaseSystem(Thread):
                     while now() < at:
                         nextArrive = Alarm.setOnetime(at - now())
                         yield waitevent, self, nextArrive
-                    cnode = self.cnodes[txn.zoneID]
-                    cnode.onTxnArrive(txn)
+                        self.numTxnsArrive += 1
+                        if self.allowOverLoad or \
+                           len(self.txnsRunning) < self.maxNumTxns:
+                            cnode = self.cnodes[txn.zoneID]
+                            cnode.onTxnArrive(txn)
+                        else:
+                            self.onTxnLoss(txn)
                 else:
                     self.state = BaseSystem.CLOSING
                     self.logger.info(
@@ -196,6 +202,14 @@ class BaseSystem(Thread):
             '.*%s'%BaseSystem.TXN_LOSS_KEY_PREFIX))
         lossRatio = loss / (resCount + loss)
         self.logger.info('loss.ratio=%s'%lossRatio)
+        loadMean, loadStd, loadHisto, loadCount = \
+                Profiler.getMonitor('/').getObservedStats('.*.num.txns')
+        self.logger.info('load.mean=%s'%loadMean)
+        self.logger.info('load.std=%s'%loadStd)
+        self.logger.info('load.histo=(%s,%s)'%(loadHisto))
+
+    def printMonitor(self):
+        self.logger.debug('monitor: %r' %(Profiler.getMonitor('system')))
 
 class ClientNode(IDable, Thread, RTI):
     """Base client node.  
@@ -214,7 +228,6 @@ class ClientNode(IDable, Thread, RTI):
         self.configs = configs
         self.groupLocations = {}
         self.txnsRunning = set([])
-        self.maxNumTxns = configs.get('max.num.txns.per.storage.node', 1024)
         self.shouldClose = False
         self.closeEvent = SimEvent()
         #paxos entities
@@ -228,50 +241,28 @@ class ClientNode(IDable, Thread, RTI):
     #notify new txn arrive, called by the system
     def onTxnArrive(self, txn):
         self.system.onTxnArrive(txn)
-        waitIfBusy = self.configs.get('txn.wait.if.snodes.busy', False)
-        snode = self.dispatchTxn(txn, waitIfBusy)
-        if snode:
-            self.txnsRunning.add(txn)
-        else:
-            self.system.onTxnLoss(txn)
+        self.txnsRunning.add(txn)
+        self.dispatchTxn(txn)
 
     #notify new txn depart, called by the storage nodes
     def onTxnDepart(self, txn):
-        if txn not in self.txnsRunning:
-            #this is possible when multiple storage nodes handles the same
-            #transaction.
-            return
-        self.txnsRunning.remove(txn)
-        self.system.onTxnDepart(txn)
+        if txn in self.txnsRunning:
+            self.txnsRunning.remove(txn)
+            self.system.onTxnDepart(txn)
 
-    def dispatchTxn(self, txn, waitIfBusy):
-        #we assign txn to one of the storage nodes hosting the txn groups
-        #if the storage node is busy, we find another one
-        #if all is busy and waitIfBusy == false, we throw it
-        #otherwise, we find the least loaded one
+    def dispatchTxn(self, txn):
+        #just basic load balance
         hosts = self.getTxnHosts(txn)
-        bestHost = iter(self.snodes).next()
+        bestHost = iter(hosts).next()
         leastLoad = bestHost.load
         for host in hosts:
             if host.load < leastLoad:
                 leastLoad = host.load
                 bestHost = host
-            if host.load < self.maxNumTxns:
-                host.onTxnArrive(txn)
-                self.logger.debug('%s local dispatch %s to %s at %s'
-                                  %(self.ID, txn.ID, host.ID, now()))
-                return host
-        #all hosts are busy
-        assert leastLoad >= self.maxNumTxns
-        if waitIfBusy:
-            bestHost.onTxnArrive(txn)
-            self.logger.debug('%s busy dispatch %s to %s at %s'
-                             %(self.ID, txn.ID, bestHost, now()))
-            return bestHost
-        else:
-            self.logger.debug('%s throw away %s at %s'
-                             %(self.ID, txn.ID, now()))
-            return None
+        bestHost.onTxnArrive(txn)
+        self.logger.debug('%s dispatch %s to %s at %s'
+                          %(self.ID, txn.ID, bestHost, now()))
+        return bestHost
 
     def getTxnHosts(self, txn):
         hosts = set([])
@@ -323,6 +314,7 @@ class StorageNode(IDable, Thread, RTI):
         self.monitor = Profiler.getMonitor(self.ID)
         self.M_POOL_WAIT_PREFIX = '%s.pool.wait' %self.ID
         self.M_TXN_RUN_PREFIX = '%s.txn.run' %self.ID
+        self.M_NUM_TXNS_RUN_KEY = '%s.num.txns'%self.ID
         self.runningThreads = set([])
         self.closeEvent = SimEvent()
         self.newTxnEvent = SimEvent()
@@ -334,9 +326,6 @@ class StorageNode(IDable, Thread, RTI):
     def close(self):
         self.shouldClose = True
         self.closeEvent.signal()
-
-    def isBusy(self):
-        return self.load >= self.maxNumTxns
 
     def onTxnArrive(self, txn):
         self.newTxns.append(txn)
@@ -381,10 +370,11 @@ class StorageNode(IDable, Thread, RTI):
             yield request, self, self.snode.pool
             self.snode.monitor.stop(
                 '%s.%s'%(self.snode.M_POOL_WAIT_PREFIX, self.txn.ID))
-            #txn start running add to txnsRunning
-            self.snode.txnsRunning.add(self.txn)
             #start runner and wait for it to finish
             thread = self.snode.newTxnRunner(self.txn)
+            self.snode.txnsRunning.add(self.txn)
+            self.snode.monitor.observe(self.snode.M_NUM_TXNS_RUN_KEY,
+                                       len(self.snode.txnsRunning))
             self.snode.monitor.start(
                 '%s.%s'%(self.snode.M_TXN_RUN_PREFIX, self.txn.ID))
             thread.start()
@@ -399,10 +389,13 @@ class StorageNode(IDable, Thread, RTI):
 
     def run(self):
         #the big while loop
-        while not self.shouldClose:
+        while True:
             yield waitevent, self, (self.closeEvent, self.newTxnEvent)
             while len(self.newTxns) > 0:
+                #pop from new txn to running txn
                 txn = self.newTxns.pop(0)
+                self.txnsRunning.add(txn)
+                #start
                 thread = StorageNode.TxnStarter(self, txn)
                 thread.start()
             if self.shouldClose:
@@ -413,6 +406,7 @@ class StorageNode(IDable, Thread, RTI):
                 for thread in self.runningThreads:
                     if not thread.isFinished():
                         yield waitevent, self, thread.finish
+                break
 
 #####  TEST #####
 

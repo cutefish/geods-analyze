@@ -12,6 +12,12 @@ class PaxosRoundType(object):
     NONE, NORMAL, FAST = range(3)
     TYPES = ['none', 'normal', 'fast']
 
+def getClassicQSize(n):
+    return n - int(math.ceil(n / 2.0) - 1)
+
+def getFastQSize(n):
+    return n - int(math.floor(n / 4.0))
+
 class VPickQuorum(object):
     """Quorum to pick value(e.g. phase 1b message from normal paxos)."""
     NOTREADY, NONE, SINGLE, COL_SINGLE, COL_NONE = range(5)
@@ -48,14 +54,18 @@ class VPickQuorum(object):
                 if value not in self.mrValues:
                     self.mrValues[value] = set([])
                 self.mrValues[value].add(voter)
-        #check voter consistency
+        #update voter
         if voter in self.votes:
             r, v = self.votes[voter]
-            if r == rnd:
+            if r > rnd:
+                pass
+            elif r == rnd:
                 #voter cannot vote different value for the same round
                 assert v == value, \
                         ('voter=%s, rnd=%s, pv=%s == %s=cv'
                          %(voter, rnd, v, value))
+            else:
+                self.votes[voter] = (rnd, value)
         else:
             self.votes[voter] = (rnd, value)
         #if we have enough vote for a quorum, and we have the keyset
@@ -85,8 +95,10 @@ class VPickQuorum(object):
                     #there can be only one value satisfy O4(v)
                     assert self.outstanding is None or \
                             self.outstanding == value, \
-                            ('outstanding=%s, curr=%s, values={%s}'
-                             %(self.outstanding, value, self))
+                            ('outstanding=%s, curr=%s, quorum={%s} '
+                             'size=%s, total=%s, nvotes=%s, required=%s'
+                             %(self.outstanding, value, self,
+                               size, self.total, len(self.votes), required))
                     self.outstanding = value
                     self.state = self.__class__.COL_SINGLE
             if self.outstanding is None:
@@ -103,6 +115,9 @@ class VPickQuorum(object):
         for acc in self.keyAccs:
             if acc not in self.votes:
                 return False
+            r, v = self.votes[acc]
+            if r < self.maxRnd:
+                return False
         return True
 
     @property
@@ -111,17 +126,20 @@ class VPickQuorum(object):
 
     def __str__(self):
         mrVStrs = []
+        vStrs = []
         for v, accset in self.mrValues.iteritems():
             strings = ['%s:['%str(v)]
             for acc in accset:
                 strings.append(str(acc))
             strings.append(']')
             mrVStrs.append(' '.join(strings))
+        for a, rv in self.votes.iteritems():
+            r, v = rv
+            vStrs.append('%s: (%s, %s)'%(a, r, v))
         return ('maxRnd=%s, rndType=%s, mvalues={%s}, votes={%s}'
                 %(self.maxRnd, PaxosRoundType.TYPES[self.mrType],
                   ', '.join(mrVStrs),
-                  ', '.join([str((str(k), v))
-                             for k, v in self.votes.iteritems()])))
+                  ', '.join(vStrs)))
 
 class VLearnQuorum(object):
     """Quorum to learn a value."""
@@ -204,8 +222,8 @@ class Acceptor(IDable, Thread, MsgXeiver):
         self.learners = learners
         self.coordinator = coordinator
         self.total = len(self.acceptors)
-        self.qsize = self.total / 2 + 1
-        self.fqsize = int(self.total - math.ceil(self.total / 3.0) + 1)
+        self.qsize = getClassicQSize(self.total)
+        self.fqsize = getFastQSize(self.total)
         self.keyAccs = []
         sortedaccs = sorted(self.acceptors)
         for i in range(self.qsize):
@@ -258,7 +276,8 @@ class Acceptor(IDable, Thread, MsgXeiver):
                 self.value[iid] = None
             if self.rndNo[iid] <= crnd:
                 if self.vrnd[iid] == crnd:
-                    #proposer can only send one value in one round
+                    #can only receive one value in one round in 2a phase
+                    #fast rounds are dealt with in _recvFastPropose()
                     assert self.value[iid] == value, \
                             ('pval = %s == %s = cval' %(self.value[iid], value))
                 #accept the value
@@ -339,46 +358,47 @@ class Acceptor(IDable, Thread, MsgXeiver):
                                 value, now()))
             if iid not in self.iquorums:
                 self.iquorums[iid] = VPickQuorum(
-                    self.fqsize, self.qsize, self.fqsize,
+                    self.qsize, self.qsize, self.fqsize,
                     self.total, self.keyAccs)
             self.iquorums[iid].add(acc, rnd, rtype, value)
             quorum = self.iquorums[iid]
-            if quorum.isReady and quorum.hasKeyAccs:
-                #if there is a collision we need to propose something for the
-                #next round to make progress
-                if quorum.state == VPickQuorum.COL_SINGLE:
-                    chosen = quorum.outstanding
+            if quorum.hasKeyAccs:
+                #we always propose something for next round to make progress
+                assert quorum.isReady
+                #we need to form a new quroum with only key acceptors such that
+                #everyone will propose the same
+                q = VPickQuorum(self.qsize, self.qsize, self.fqsize,
+                                self.total, self.keyAccs)
+                for acc in self.keyAccs:
+                    r, v = quorum.votes[acc]
+                    assert r == quorum.maxRnd, 'quorum: %s'%quorum
+                    q.add(acc, r, PaxosRoundType.FAST, v)
+                #pick a value
+                chosen = None
+                if q.state == VPickQuorum.COL_NONE:
+                    acc = self.keyAccs[0]
+                    r, v = q.votes[acc]
+                    chosen = v
                     self.logger.debug('%s resolve collision:'
                                       'iid=%s, rnd=%s, type=%s, '
-                                      'value=%s, at %s'
+                                      'value=%s, acc=%s, quorum=%s, at %s'
                                       %(self.ID, iid, rnd,
                                         PaxosRoundType.TYPES[rtype],
-                                        chosen, now()))
-                    for acc in self.acceptors:
-                        self.sendMsg(acc, '2a',
-                                     (self, iid,
-                                      rnd + self.rndstep, chosen))
-                elif quorum.state == VPickQuorum.COL_NONE:
-                    #choose the value
-                    chosen = 'null'
-                    for acc in quorum.keyAccs:
-                        r, v = quorum.votes[acc]
-                        if r == quorum.maxRnd:
-                            chosen = v
-                            break
-                    self.logger.debug('%s resolve collision:'
-                                      'iid=%s, rnd=%s, type=%s, '
-                                      'value=%s, at %s'
-                                      %(self.ID, iid, rnd,
-                                        PaxosRoundType.TYPES[rtype],
-                                        chosen, now()))
-                    #send the chosen value
-                    for acc in self.acceptors:
-                        self.sendMsg(acc, '2a',
-                                     (self, iid,
-                                      rnd + self.rndstep, chosen))
+                                        chosen, acc, quorum, now()))
                 else:
-                    pass
+                    self.logger.debug('%s resolve collision not needed:'
+                                      'iid=%s, rnd=%s, type=%s, '
+                                      'value=%s, acc=%s, quorum=%s, at %s'
+                                      %(self.ID, iid, rnd,
+                                        PaxosRoundType.TYPES[rtype],
+                                        chosen, acc, quorum, now()))
+                    chosen = q.outstanding
+                    assert chosen != None, 'quorum: %s'%q
+                #send the chosen value
+                for acc in self.acceptors:
+                    self.sendMsg(acc, '2a',
+                                 (self, iid,
+                                  rnd + self.rndstep, chosen))
                 del self.iquorums[iid]
 
 class Learner(IDable, Thread, MsgXeiver):
@@ -396,8 +416,8 @@ class Learner(IDable, Thread, MsgXeiver):
 
     def init(self, total):
         self.total = total
-        self.qsize = self.total / 2 + 1
-        self.fqsize = int(self.total - math.ceil(self.total / 3.0) + 1)
+        self.qsize = getClassicQSize(self.total)
+        self.fqsize = getFastQSize(self.total)
 
     def close(self):
         self.closed = True
@@ -439,8 +459,8 @@ class Learner(IDable, Thread, MsgXeiver):
                 self.instances[iid] = finalval
                 del self.iquorums[iid]
                 self.newInstanceEvent.signal()
-                self.logger.debug('%s "LEARNED": iid=%s, rnd=%s, value=%s'
-                                  %(self.ID, iid, finalrnd, finalval))
+                self.logger.debug('%s "LEARNED": iid=%s, rnd=%s, value=%s at %s'
+                                  %(self.ID, iid, finalrnd, finalval, now()))
 
 class Coordinator(IDable, Thread, MsgXeiver):
     """A special proposer for fast rounds with starting round number 0.
@@ -469,8 +489,8 @@ class Coordinator(IDable, Thread, MsgXeiver):
         self.acceptors = acceptors
         self.learner = learner
         self.total = len(acceptors)
-        self.qsize = self.total / 2 + 1
-        self.fqsize = int(self.total - math.ceil(self.total / 3.0) + 1)
+        self.qsize = getClassicQSize(self.total)
+        self.fqsize = getFastQSize(self.total)
 
     def close(self):
         self.closed = True
@@ -612,8 +632,8 @@ class Proposer(IDable, Thread, MsgXeiver):
         self.isFast = isFast
         self.isSingle = isSingle
         self.total = len(self.acceptors)
-        self.qsize = self.total / 2 + 1
-        self.fqsize = int(self.total - math.ceil(self.total / 3.0) + 1)
+        self.qsize = getClassicQSize(self.total)
+        self.fqsize = getFastQSize(self.total)
         self.crnd = rnd0
         self.quorum = None
         self.isSuccess = False
@@ -1079,10 +1099,10 @@ def testFastPaxosUncoordinated():
 
 def test():
     logging.basicConfig(level=logging.DEBUG)
-    testClassicPaxos()
-    testClassicPaxosInterleavedIID()
-    testMultiplePaxos()
-    testFastPaxosCoordinated()
+    #testClassicPaxos()
+    #testClassicPaxosInterleavedIID()
+    #testMultiplePaxos()
+    #testFastPaxosCoordinated()
     testFastPaxosUncoordinated()
 
 def main():

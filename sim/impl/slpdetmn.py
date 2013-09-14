@@ -31,13 +31,8 @@ class SPDCNode(ClientNode):
         self.zoneID = ID
 
     def onTxnArriveMaster(self, txn):
-        waitIfBusy = self.configs.get('txn.wait.if.snodes.busy', False)
-        snode = self.dispatchTxn(txn, waitIfBusy)
-        if snode:
-            self.txnsRunning[txn] = snode
-            self.snodeLoads[snode].add(txn)
-        else:
-            self.system.onTxnLoss(txn)
+        self.txnsRunning.add(txn)
+        self.dispatchTxn(txn)
 
     def onTxnArrive(self, txn):
         self.system.onTxnArrive(txn)
@@ -47,11 +42,7 @@ class SPDCNode(ClientNode):
             self.invoke(self.system.cnodes[0].onTxnArriveMaster, txn).rtiCall()
 
     def onTxnDepartMaster(self, txn):
-        if txn not in self.txnsRunning:
-            return
-        snode = self.txnsRunning[txn]
-        self.snodeLoads[snode].remove(txn)
-        del self.txnsRunning[txn]
+        self.txnsRunning.remove(txn)
 
     def onTxnDepart(self, txn):
         if self == self.system.cnodes[0]:
@@ -68,9 +59,7 @@ class SPDSNode(CDSNode):
         while True:
             #handle new transaction
             while len(self.newTxns) > 0:
-                assert self.cnode.zoneID == 0, \
-                        '%s got new txn, but not master'%self.ID
-                txn = self.newTxns.pop()
+                txn = self.newTxns.pop(0)
                 #propose the txn for instance
                 self.cnode.paxosPRunner.addRequest(txn)
             #handle new instance

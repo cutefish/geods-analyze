@@ -93,7 +93,7 @@ class CDSNode(StorageNode):
         while True:
             yield waitevent, self, (self.closeEvent, self.newTxnEvent)
             while len(self.newTxns) > 0:
-                txn = self.newTxns.pop()
+                txn = self.newTxns.pop(0)
                 #add txn to the locking queue
                 self.lockingQueue.append(txn)
                 thread = StorageNode.TxnStarter(self, txn)

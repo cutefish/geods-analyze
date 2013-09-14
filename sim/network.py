@@ -48,7 +48,7 @@ class FixedLatencyNetwork(IIDLatencyNetwork):
             '%s.%s'%(IIDLatencyNetwork.WITHIN_KEY_PREFIX,
                      FixedLatencyNetwork.FIXED_KEY)]
         self.crossZoneLatency = configs[
-            '%s.%s'%(IIDLatencyNetwork.WITHIN_KEY_PREFIX,
+            '%s.%s'%(IIDLatencyNetwork.CROSS_KEY_PREFIX,
                      FixedLatencyNetwork.FIXED_KEY)]
 
     def getWithinZoneLatency(self):

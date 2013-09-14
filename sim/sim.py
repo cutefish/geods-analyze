@@ -60,6 +60,7 @@ def main():
     #get profile
     logger.info('\n#####  PROFILING RESULTS  #####\n')
     system.profile()
+    system.printMonitor()
     logger.info('\n#####  END  #####\n')
 
     end = time.time()

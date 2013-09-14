@@ -5,8 +5,9 @@ from SimPy.Simulation import now, activate, stopSimulation
 from SimPy.Simulation import waitevent, hold
 from SimPy.Simulation import Process, SimEvent
 
+from core import infinite
 from paxos import initPaxosCluster
-from system import BaseSystem, ClientNode
+from system import BaseSystem, ClientNode, StorageNode
 
 from impl.slpdetmn import SPDSNode
 
@@ -28,5 +29,5 @@ class FPaxosDetmnSystem(BaseSystem):
 class FPDCNode(ClientNode):
     pass
 
-class FPDSnode(SPDSNode):
+class FPDSNode(SPDSNode):
     pass

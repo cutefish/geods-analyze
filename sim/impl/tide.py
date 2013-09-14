@@ -40,7 +40,6 @@ class DRCNode(ClientNode):
         return now() - self.skew
 
     def onTxnArrive(self, txn):
-        waitIfBusy = self.configs.get('txn.wait.if.snodes.busy', False)
         if len(self.runningTxns) < self.maxNumTxns:
             self.system.onTxnArrive(txn)
             self.runningTxns[txn] = None

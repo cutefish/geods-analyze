@@ -5,9 +5,7 @@ from SimPy.Simulation import now, activate, stopSimulation
 from SimPy.Simulation import waitevent, hold
 from SimPy.Simulation import Process, SimEvent
 
-from core import Thread
-from rti import MsgXeiver
-from txns import TxnRunner
+from core import Alarm, IDable, infinite
 from system import BaseSystem, ClientNode, StorageNode
 
 from paxos import initPaxosCluster
@@ -28,11 +26,23 @@ class EPaxosDetmnSystem(BaseSystem):
 class EPDCNode(ClientNode):
     pass
 
-class EPDSnode(CDSNode):
+class Batch(IDable):
+    def __init__(self, ID):
+        IDable.__init__(self, ID)
+        self.batch = []
+
+    def append(self, txn):
+        self.batch.append(txn)
+
+    def __iter__(self):
+        for txn in self.batch:
+            yield txn
+
+class EPDSNode(CDSNode):
     def __init__(self, cnode, index, configs):
         CDSNode.__init__(self, cnode, index, configs)
         self.nextIID = 0
-        self.eLen = self.configs['epdetmn.epoch.legnth']
+        self.eLen = self.configs['epdetmn.epoch.length']
         mu = self.configs.get('epdetmn.epoch.skew.mu', 0)
         sigma = self.configs.get('epdetmn.epoch.skew.sigma', 0)
         self.skew = random.normalvariate(mu, sigma)
@@ -41,16 +51,18 @@ class EPDSnode(CDSNode):
         yield hold, self, 10 * self.eLen + self.skew
         periodEvent = Alarm.setPeriodic(self.eLen)
         lastEpochTime = -1
+        count = 0
         while True:
             #handle batch transaction event
             if now() > lastEpochTime + self.eLen:
-                batch = []
-                while len(self, newTxns) > 0:
+                batch = Batch('%s-%s'%(self, count))
+                while len(self.newTxns) > 0:
                     txn = self.newTxns.pop()
                     batch.append(txn)
                 #propose the txn for instance
                 self.cnode.paxosPRunner.addRequest(batch)
                 lastEpochTime = now()
+                count += 1
             #handle new instance
             instances = self.cnode.paxosLearner.instances
             while self.nextIID in instances:
@@ -61,5 +73,5 @@ class EPDSnode(CDSNode):
                     thread.start()
             #wait for new event
             yield waitevent, self, \
-                    (periodEvent, self.cnode.paxosLearner.newFinishEvent)
+                    (periodEvent, self.cnode.paxosLearner.newInstanceEvent)
 
