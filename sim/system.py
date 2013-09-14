@@ -213,7 +213,7 @@ class ClientNode(IDable, Thread, RTI):
         self.snodes = []
         self.configs = configs
         self.groupLocations = {}
-        self.txnsRunning = {}   #{txn : snode}
+        self.txnsRunning = set([])
         self.maxNumTxns = configs.get('max.num.txns.per.storage.node', 1024)
         self.shouldClose = False
         self.closeEvent = SimEvent()
@@ -231,7 +231,7 @@ class ClientNode(IDable, Thread, RTI):
         waitIfBusy = self.configs.get('txn.wait.if.snodes.busy', False)
         snode = self.dispatchTxn(txn, waitIfBusy)
         if snode:
-            self.txnsRunning[txn] = snode
+            self.txnsRunning.add(txn)
         else:
             self.system.onTxnLoss(txn)
 
@@ -241,8 +241,7 @@ class ClientNode(IDable, Thread, RTI):
             #this is possible when multiple storage nodes handles the same
             #transaction.
             return
-        snode =  self.txnsRunning[txn]
-        del self.txnsRunning[txn]
+        self.txnsRunning.remove(txn)
         self.system.onTxnDepart(txn)
 
     def dispatchTxn(self, txn, waitIfBusy):
@@ -263,7 +262,8 @@ class ClientNode(IDable, Thread, RTI):
                                   %(self.ID, txn.ID, host.ID, now()))
                 return host
         #all hosts are busy
-        if waitIfBusy or leastLoad < self.maxNumTxns:
+        assert leastLoad >= self.maxNumTxns
+        if waitIfBusy:
             bestHost.onTxnArrive(txn)
             self.logger.debug('%s busy dispatch %s to %s at %s'
                              %(self.ID, txn.ID, bestHost, now()))
@@ -376,32 +376,26 @@ class StorageNode(IDable, Thread, RTI):
             #      '(%s)'%(','.join([t.ID for t in self.snode.txnsRunning])),
             #      '(%s)'%(','.join([t.ID for t in self.snode.newTxns]))
             #     ))
-            self.snode.logger.debug('%s started starter for %s at %s'
-                                    %(self.snode.ID, self.txn, now()))
-            if self.snode.isBusy():
-                self.snode.logger.debug('%s is busy for %s with load=%s at %s'
-                                        %(self.snode.ID, self.txn, self.snode.load, now()))
-                self.snode.monitor.start(
-                    '%s.%s'%(self.snode.M_POOL_WAIT_PREFIX, self.txn.ID))
-                yield request, self, self.snode.pool
-                self.snode.monitor.stop(
-                    '%s.%s'%(self.snode.M_POOL_WAIT_PREFIX, self.txn.ID))
-            self.snode.logger.debug('%s starting runner for %s at %s'
-                                    %(self.snode.ID, self.txn, now()))
+            self.snode.monitor.start(
+                '%s.%s'%(self.snode.M_POOL_WAIT_PREFIX, self.txn.ID))
+            yield request, self, self.snode.pool
+            self.snode.monitor.stop(
+                '%s.%s'%(self.snode.M_POOL_WAIT_PREFIX, self.txn.ID))
             #txn start running add to txnsRunning
             self.snode.txnsRunning.add(self.txn)
             #start runner and wait for it to finish
             thread = self.snode.newTxnRunner(self.txn)
-            thread.start()
             self.snode.monitor.start(
                 '%s.%s'%(self.snode.M_TXN_RUN_PREFIX, self.txn.ID))
+            thread.start()
             yield waitevent, self, thread.finish
             self.snode.monitor.stop(
                 '%s.%s'%(self.snode.M_TXN_RUN_PREFIX, self.txn.ID))
+            yield release, self, self.snode.pool  
             #clean up
             self.snode.txnsRunning.remove(self.txn)
             self.snode.runningThreads.remove(self)
-            self.snode.invoke(self.snode.cnode.onTxnDepart, self.txn).rtiCall()
+            self.snode.cnode.onTxnDepart(self.txn)
 
     def run(self):
         #the big while loop
