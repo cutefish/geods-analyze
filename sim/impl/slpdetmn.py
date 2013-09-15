@@ -23,7 +23,8 @@ class SLPaxosDetmnSystem(BaseSystem):
 
     def startupPaxos(self):
         initPaxosCluster(
-            self.cnodes, self.cnodes, False, False, True, False, infinite)
+            self.cnodes, self.cnodes, False, False, 'one', 
+            True, False, infinite)
 
 class SPDCNode(ClientNode):
     def __init__(self, system, ID, configs):

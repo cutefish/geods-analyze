@@ -23,7 +23,7 @@ class FPaxosDetmnSystem(BaseSystem):
         coordinatedRecovery = self.configs.get(
             'fast.paxos.coordinated.recovery', False)
         initPaxosCluster(
-            self.cnodes, self.cnodes, coordinatedRecovery, True,
+            self.cnodes, self.cnodes, coordinatedRecovery, True, 'all',
             False, False, infinite)
 
 class FPDCNode(ClientNode):

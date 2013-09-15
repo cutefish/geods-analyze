@@ -135,6 +135,8 @@ class BaseSystem(Thread):
                     while now() < at:
                         nextArrive = Alarm.setOnetime(at - now())
                         yield waitevent, self, nextArrive
+                        if now() < at:
+                            continue
                         self.numTxnsArrive += 1
                         if self.allowOverLoad or \
                            len(self.txnsRunning) < self.maxNumTxns:
@@ -178,7 +180,7 @@ class BaseSystem(Thread):
 
     def startupPaxos(self):
         initPaxosCluster(
-            self.cnodes, self.cnodes, False, False, True, True, infinite)
+            self.cnodes, self.cnodes, False, False, 'all', True, True, infinite)
 
     def printProgress(self):
         #do not overflood the output, so we only print when both the
@@ -271,29 +273,34 @@ class ClientNode(IDable, Thread, RTI):
         return hosts
 
     def close(self):
+        self.logger.info('Closing %s at %s'%(self, now()))
         self.shouldClose = True
         self.closeEvent.signal()
 
     def _close(self):
-        #periodically check if we still have txn running
-        while True:
-            yield hold, self, 100
-            if len(self.txnsRunning) == 0:
-                break
+        ##periodically check if we still have txn running
+        #while True:
+        #    yield hold, self, 100
+        #    if len(self.txnsRunning) == 0:
+        #        break
         for snode in self.groupLocations.values():
             snode.close()
         for snode in self.groupLocations.values():
             if not snode.isFinished():
                 yield waitevent, self, snode.finish
-        self.paxosPRunner.close()
-        self.paxosAcceptor.close()
-        self.paxosLearner.close()
+        try:
+            self.paxosPRunner.close()
+            self.paxosAcceptor.close()
+            self.paxosLearner.close()
+        except:
+            pass
 
     def run(self):
         while not self.shouldClose:
             yield waitevent, self, self.closeEvent
             if self.shouldClose:
-                self._close()
+                for step in self._close():
+                    yield step
 
 class StorageNode(IDable, Thread, RTI):
     """Base storage node."""
@@ -324,6 +331,7 @@ class StorageNode(IDable, Thread, RTI):
         return len(self.txnsRunning) + len(self.newTxns)
 
     def close(self):
+        self.logger.info('Closing %s at %s'%(self, now()))
         self.shouldClose = True
         self.closeEvent.signal()
 
@@ -346,7 +354,7 @@ class StorageNode(IDable, Thread, RTI):
             def run(self):
                 self.logger.debug('Running transaction %s at %s' 
                                   %(txn.ID, now()))
-                yield hold, self, RandInterval.get('expo', 100)
+                yield hold, self, RandInterval.get('expo', 100).next()
         return DefaultTxnRunner(self, txn)
 
     class TxnStarter(Thread):
@@ -372,6 +380,8 @@ class StorageNode(IDable, Thread, RTI):
                 '%s.%s'%(self.snode.M_POOL_WAIT_PREFIX, self.txn.ID))
             #start runner and wait for it to finish
             thread = self.snode.newTxnRunner(self.txn)
+            assert self.txn not in self.snode.txnsRunning, \
+                    '%s already started txn %s'%(self.snode, self.txn)
             self.snode.txnsRunning.add(self.txn)
             self.snode.monitor.observe(self.snode.M_NUM_TXNS_RUN_KEY,
                                        len(self.snode.txnsRunning))
@@ -390,23 +400,22 @@ class StorageNode(IDable, Thread, RTI):
     def run(self):
         #the big while loop
         while True:
-            yield waitevent, self, (self.closeEvent, self.newTxnEvent)
+            yield waitevent, self, self.newTxnEvent
             while len(self.newTxns) > 0:
                 #pop from new txn to running txn
                 txn = self.newTxns.pop(0)
-                self.txnsRunning.add(txn)
                 #start
                 thread = StorageNode.TxnStarter(self, txn)
                 thread.start()
-            if self.shouldClose:
-                self.logger.info(
-                    '%s closing. Wait for threads to terminate at %s'
-                    %(self.ID, now()))
-                #wait for running threads to terminate and close
-                for thread in self.runningThreads:
-                    if not thread.isFinished():
-                        yield waitevent, self, thread.finish
-                break
+            #if self.shouldClose:
+            #    self.logger.info(
+            #        '%s closing. Wait for threads to terminate at %s'
+            #        %(self.ID, now()))
+            #    #wait for running threads to terminate and close
+            #    for thread in list(self.runningThreads):
+            #        if not thread.isFinished():
+            #            yield waitevent, self, thread.finish
+            #    break
 
 #####  TEST #####
 
@@ -434,10 +443,9 @@ def test():
     #initialize
     logging.basicConfig(level=logging.DEBUG)
     configs = {
-        'network.sim.class' : 'network.FixedLatencyNetwork',
         'max.num.txns.per.storage.node' : 1,
-        'nw.latency.within.zone.fixed' : 0,
-        'nw.latency.cross.zone.fixed' : 0,
+        'nw.latency.within.zone' : ('fixed', 0),
+        'nw.latency.cross.zone' : ('fixed', 0),
     }
     groups = {}
     for i in range(numSNodes):
@@ -455,7 +463,8 @@ def test():
         zoneID = random.randint(0, configs['num.zones'] - 1)
         gid = random.randint(0, numSNodes - 1)
         txn = FakeTxn(txnID, zoneID, gid)
-        at = curr + RandInterval.get('expo', TEST_TXN_ARRIVAL_PERIOD / TEST_NUM_TXNS)
+        at = curr + RandInterval.get(
+            'expo', TEST_TXN_ARRIVAL_PERIOD / TEST_NUM_TXNS).next()
         curr  = at
         system.schedule(txn, at)
         logging.info('txnID=%s, zoneID=%s, gids=%s at=%s'
@@ -468,7 +477,7 @@ def test():
     system.profile()
     #calculate m/m/s loss rate
     lambd = float(TEST_NUM_TXNS) / TEST_TXN_ARRIVAL_PERIOD
-    mu = 1 / float(configs['nw.latency.within.zone.fixed'] + 100)
+    mu = 1 / float(100)
     print erlangLoss(lambd / numZones / numSNodes, mu, 1)
     print erlangLoss(lambd / numZones, mu, numSNodes)
 

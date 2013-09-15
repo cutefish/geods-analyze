@@ -614,7 +614,7 @@ class Proposer(IDable, Thread, MsgXeiver):
     """Paxos proposer."""
     def __init__(self, prunner, rnd0, rndstep, acceptors, learner,
                  instanceID, value, timeout=infinite,
-                 isFast=False, isSingle=False):
+                 isFast=False, noPhase1=False):
         IDable.__init__(self,
                         '%s/prop-(%s, %s)'%(
                             prunner.ID, str(instanceID), str(value)))
@@ -630,7 +630,7 @@ class Proposer(IDable, Thread, MsgXeiver):
         self.value = value
         self.timeout = timeout
         self.isFast = isFast
-        self.isSingle = isSingle
+        self.noPhase1 = noPhase1
         self.total = len(self.acceptors)
         self.qsize = getClassicQSize(self.total)
         self.fqsize = getFastQSize(self.total)
@@ -642,7 +642,7 @@ class Proposer(IDable, Thread, MsgXeiver):
     def propose(self):
         self.crnd = self.rnd0
         #set pick value
-        if self.isSingle:
+        if self.noPhase1:
             #if we are the only proposer, it is certain that we will pick the
             #value we want.
             pvalue = self.value
@@ -664,8 +664,8 @@ class Proposer(IDable, Thread, MsgXeiver):
                     #recv 1b message
                     for step in self._recv1bMsg():
                         yield step
-                        self.logger.debug('%s got 1b message in round %s at %s'
-                                          %(self.ID, self.crnd, now()))
+                    self.logger.debug('%s got 1b message in round %s at %s'
+                                      %(self.ID, self.crnd, now()))
                     #check with learner
                     if self.instanceID in self.learner.instances:
                         break
@@ -690,7 +690,7 @@ class Proposer(IDable, Thread, MsgXeiver):
                                  %(self.ID, self.instanceID, self.crnd,
                                    self.crnd + self.rndstep, now()))
                 self.crnd += self.rndstep
-                if self.isSingle:
+                if self.noPhase1:
                     pvalue = value
                 else:
                     pvalue = None
@@ -813,7 +813,7 @@ class PaxosResponse(object):
 class ProposerRunner(IDable, Thread, MsgXeiver):
     """A thread that launches proposers."""
     def __init__(self, parent, rnd0, rndstep, acceptors, learner,
-                 timeout=infinite, isFast=False, isSingle=False,
+                 timeout=infinite, isFast=False, noPhase1=False,
                  iid0=0, iidstep=1):
         IDable.__init__(self, '%s/proprunner'%parent.ID)
         Thread.__init__(self)
@@ -826,7 +826,7 @@ class ProposerRunner(IDable, Thread, MsgXeiver):
         self.learner = learner
         self.timeout = timeout
         self.isFast = isFast
-        self.isSingle = isSingle
+        self.noPhase1 = noPhase1
         self.newRequestEvent = SimEvent()
         self.newFinishEvent = SimEvent()
         self.requests = []
@@ -837,7 +837,7 @@ class ProposerRunner(IDable, Thread, MsgXeiver):
         self.closed = False
         self.logger = logging.getLogger(self.__class__.__name__)
 
-    def close():
+    def close(self):
         self.closed = True
 
     def addRequest(self, value):
@@ -864,7 +864,7 @@ class ProposerRunner(IDable, Thread, MsgXeiver):
                                     self.acceptors, self.learner,
                                     instanceID, value,
                                     self.timeout,
-                                    self.isFast, self.isSingle)
+                                    self.isFast, self.noPhase1)
                 proposer.start()
             while len(self.finishedProposers) > 0:
                 prev = self.finishedProposers.pop(0)
@@ -875,7 +875,7 @@ class ProposerRunner(IDable, Thread, MsgXeiver):
                                         self.acceptors, self.learner,
                                         instanceID, value,
                                         self.timeout,
-                                        self.isFast, self.isSingle)
+                                        self.isFast, self.noPhase1)
                     proposer.start()
                 else:
                     #success, notify the event and the instance
@@ -885,7 +885,8 @@ class ProposerRunner(IDable, Thread, MsgXeiver):
             yield waitevent, self, (self.newRequestEvent, self.newFinishEvent)
 
 def initPaxosCluster(pnodes, anodes, coordinatedRecovery, 
-                     isFast, isSingle, interleavedIID, timeout):
+                     isFast, propPlacement, noPhase1, 
+                     interleavedIID, timeout):
     #on each anode, there is an acceptor
     acceptors = []
     for anode in anodes:
@@ -912,31 +913,33 @@ def initPaxosCluster(pnodes, anodes, coordinatedRecovery,
     coordinator.start()
     #propose runners
     prunners = []
-    if isSingle:
+    if propPlacement == 'one':
         prunner = ProposerRunner(pnodes[0], 1, len(pnodes),
                                  acceptors, learners[0],
-                                 timeout, isFast, isSingle)
+                                 timeout, isFast, noPhase1)
         prunners.append(prunner)
         pnodes[0].paxosPRunner = prunner
         prunner.start()
-    else:
+    elif propPlacement == 'all':
         for i, pnode in enumerate(pnodes):
             if not interleavedIID:
                 prunner = ProposerRunner(pnode, i + 1, len(pnodes),
                                          acceptors, learners[i],
-                                         timeout, isFast, isSingle)
+                                         timeout, isFast, noPhase1)
             else:
                 prunner = ProposerRunner(pnode, i + 1, len(pnodes),
                                          acceptors, learners[i],
-                                         timeout, isFast, isSingle, 
+                                         timeout, isFast, noPhase1, 
                                          i, len(pnodes))
             prunners.append(prunner)
             pnode.paxosPRunner = prunner
             prunner.start()
+    else:
+        raise ValueError('unknown proposer placement policy: %s'
+                         %propPlacement)
 
 ##### TEST #####
 import random
-from network import UniformLatencyNetwork
 
 class ANode(object):
     def __init__(self, i):
@@ -970,11 +973,8 @@ class TestRunner(Thread):
 NUM_PNODES = 5
 NUM_ANODES = 7
 NETWORK_CONFIG = {
-    'network.sim.class' : 'network.UniformLatencyNetwork',
-    UniformLatencyNetwork.WITHIN_ZONE_LATENCY_LB_KEY: 10,
-    UniformLatencyNetwork.WITHIN_ZONE_LATENCY_UB_KEY: 500,
-    UniformLatencyNetwork.CROSS_ZONE_LATENCY_LB_KEY: 10,
-    UniformLatencyNetwork.CROSS_ZONE_LATENCY_UB_KEY: 1000,
+    'nw.latency.within.zone' : ('uniform', -1, {'lb':10, 'ub':500}),
+    'nw.latency.cross.zone' : ('uniform', -1, {'lb':10, 'ub':1000}),
 }
 THRESHOLD = 0.5
 INTERVAL = 500
@@ -1010,7 +1010,7 @@ def verifyResult(learners):
 def testClassicPaxos():
     logging.info('===== START TEST CLASSIC PAXOS =====')
     pnodes, anodes, values = initTest()
-    initPaxosCluster(pnodes, anodes, False, False, False, False, 1500)
+    initPaxosCluster(pnodes, anodes, False, False, 'all', False, False, 1500)
     prunners = []
     learners = []
     for pnode in pnodes:
@@ -1028,7 +1028,7 @@ def testClassicPaxos():
 def testClassicPaxosInterleavedIID():
     logging.info('===== START TEST CLASSIC PAXOS INTERLEAVEDIID =====')
     pnodes, anodes, values = initTest()
-    initPaxosCluster(pnodes, anodes, False, False, False, True, 1500)
+    initPaxosCluster(pnodes, anodes, False, False, 'all', False, True, 1500)
     prunners = []
     learners = []
     for pnode in pnodes:
@@ -1046,7 +1046,7 @@ def testClassicPaxosInterleavedIID():
 def testMultiplePaxos():
     logging.info('===== START TEST MULTI PAXOS =====')
     pnodes, anodes, values = initTest()
-    initPaxosCluster(pnodes, anodes, False, False, True, False, 1500)
+    initPaxosCluster(pnodes, anodes, False, False, 'one', True, False, 1500)
     prunners = []
     learners = []
     for pnode in pnodes:
@@ -1061,10 +1061,28 @@ def testMultiplePaxos():
     verifyResult(learners)
     logging.info('===== END TEST MULTI PAXOS =====')
 
+def testMultiplePaxosInterleavedIID():
+    logging.info('===== START TEST MULTIPLE PAXOS INTERLEAVEDIID =====')
+    pnodes, anodes, values = initTest()
+    initPaxosCluster(pnodes, anodes, False, False, 'all', True, True, 1500)
+    prunners = []
+    learners = []
+    for pnode in pnodes:
+        try:
+            prunners.append(pnode.paxosPRunner)
+        except AttributeError:
+            pass
+        learners.append(pnode.paxosLearner)
+    testrunner = TestRunner(values, prunners, THRESHOLD, INTERVAL)
+    testrunner.start()
+    simulate(until=1000000)
+    verifyResult(learners)
+    logging.info('===== END TEST CLASSIC PAXOS INTERLEAVEDIID =====')
+
 def testFastPaxosCoordinated():
     logging.info('===== START TEST FAST PAXOS COORDINATED=====')
     pnodes, anodes, values = initTest()
-    initPaxosCluster(pnodes, anodes, True, True, False, False, 1500)
+    initPaxosCluster(pnodes, anodes, True, True, 'all', False, False, 1500)
     prunners = []
     learners = []
     for pnode in pnodes:
@@ -1082,7 +1100,7 @@ def testFastPaxosCoordinated():
 def testFastPaxosUncoordinated():
     logging.info('===== START TEST FAST PAXOS UNCOORDINATED=====')
     pnodes, anodes, values = initTest()
-    initPaxosCluster(pnodes, anodes, False, True, False, False, 1500)
+    initPaxosCluster(pnodes, anodes, False, True, 'all', False, False, 1500)
     prunners = []
     learners = []
     for pnode in pnodes:
@@ -1099,10 +1117,11 @@ def testFastPaxosUncoordinated():
 
 def test():
     logging.basicConfig(level=logging.DEBUG)
-    #testClassicPaxos()
-    #testClassicPaxosInterleavedIID()
-    #testMultiplePaxos()
-    #testFastPaxosCoordinated()
+    testClassicPaxos()
+    testClassicPaxosInterleavedIID()
+    testMultiplePaxos()
+    testMultiplePaxosInterleavedIID()
+    testFastPaxosCoordinated()
     testFastPaxosUncoordinated()
 
 def main():

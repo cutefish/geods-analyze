@@ -23,7 +23,8 @@ class MasterDyLockSystem(BaseSystem):
 
     def startupPaxos(self):
         initPaxosCluster(
-            self.cnodes, self.cnodes, False, False, True, False, infinite)
+            self.cnodes, self.cnodes, False, False, 'one', 
+            True, False, infinite)
 
 class MDLCNode(ClientNode):
     def __init__(self, system, ID, configs):
@@ -93,7 +94,7 @@ class Committer(Thread, RTI):
                     item = self.snode.groups[itemID.gid][itemID]
                     item.write(value)
                     yield hold, self, RandInterval.get(*txn.config.get(
-                        'commit.intvl.dist', ('fix', 0)))
+                        'commit.intvl.dist', ('fixed', 0))).next()
                 #report txn done
                 self.invoke(self.cnode.onTxnDepart, txn).rtiCall()
                 self.nextUpdateIID += 1

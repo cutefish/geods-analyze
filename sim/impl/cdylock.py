@@ -97,7 +97,7 @@ class DLTxnRunner(TxnRunner):
             if self.logger.isEnabledFor(logging.DEBUG):
                 wsStrings.append('(%s, %s)'%(itemID, value))
             yield hold, self, RandInterval.get(*self.txn.config.get(
-                'commit.intvl.dist', ('fix', 0)))
+                'commit.intvl.dist', ('fixed', 0))).next()
         if self.logger.isEnabledFor(logging.DEBUG):
             self.logger.debug('%s commit {%s}'
                               %(self.ID, ', '.join([s for s in wsStrings])))

@@ -7,7 +7,7 @@ from SimPy.Simulation import waitevent, hold
 
 from core import infinite, Alarm, RetVal, Thread, TimeoutException
 from importutils import loadClass
-from network import FixedLatencyNetwork
+from network import IIDLatencyNetwork
 
 class RTI(object):
     """Remote State Transition Interface.
@@ -48,9 +48,7 @@ class RTI(object):
     networkInstance = None
     @classmethod
     def initialize(cls, configs):
-        networkClsName = configs.get('network.sim.class', 'network.FixedLatencyNetwork')
-        networkCls = loadClass(networkClsName)
-        RTI.networkInstance = networkCls(configs)
+        RTI.networkInstance = IIDLatencyNetwork(configs)
 
     class AnonymousThread(Thread):
         """
@@ -244,11 +242,14 @@ class MsgXeiver(RTI):
 
     def getWaitMsgEvents(self, tags):
         events = []
+        if not (isinstance(tags, list) or isinstance(tags, tuple)):
+            tags  = (tags, )
         for tag in tags:
             if tag not in self.rtiNotifiers:
                 event = SimEvent()
                 self.rtiNotifiers[tag] = event
-                events.append(event)
+            event = self.rtiNotifiers[tag]
+            events.append(event)
         return events
 
     def popContents(self, tag):
@@ -322,9 +323,9 @@ class Client(Thread, MsgXeiver):
 def testRTI():
     print '\n>>> testRTI\n'
     configs = {
-        'network.sim.class' : 'network.FixedLatencyNetwork',
-        FixedLatencyNetwork.WITHIN_ZONE_LATENCY_KEY : 5,
-        FixedLatencyNetwork.CROSS_ZONE_LATENCY_KEY : 30
+        'nw.latency.within.zone' : ('uniform', 10, {'lb' : 5, 'ub' : 15}),
+        'nw.latency.cross.zone' : ('norm', 100,
+                                   {'lb' : 50, 'ub' : 150, 'sigma' : 100}),
     }
     initialize()
     RTI.initialize(configs)

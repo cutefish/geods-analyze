@@ -143,7 +143,7 @@ class TxnRunner(LockThread):
                             yield step
                     #simulate the cost of each read/write step
                     yield hold, self, RandInterval.get(
-                        *self.txn.config['action.intvl.dist'])
+                        *self.txn.config['action.intvl.dist']).next()
                 #try commit
                 self.Committing()
                 for step in self.trycommit():

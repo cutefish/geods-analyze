@@ -53,7 +53,7 @@ class UniformTxnGen(object):
                 actions = self.nextActions(txnCls)
                 txn = Transaction(txnID, zoneID, actions, txnCls.config)
                 prev = at.get(zoneID, 0)
-                intvl = RandInterval.get(*self.arrIntvDist)
+                intvl = RandInterval.get(*self.arrIntvDist).next()
                 curr = prev + intvl
                 at[zoneID] = curr
                 yield txn, curr

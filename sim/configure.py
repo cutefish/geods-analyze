@@ -74,7 +74,7 @@ class Configuration(object):
             try:
                 self.conf[key] = eval(val)
             except Exception as e:
-                if re.match('[a-zA-Z.]+', val):
+                if re.match('[/_a-zA-Z.]+', val):
                     #if val is a name
                     self.conf[key] = val
                 else:

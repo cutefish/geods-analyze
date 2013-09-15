@@ -21,7 +21,8 @@ class EPaxosDetmnSystem(BaseSystem):
 
     def startupPaxos(self):
         initPaxosCluster(
-            self.cnodes, self.cnodes, False, False, False, True, infinite)
+            self.cnodes, self.cnodes, False, False, 'all', 
+            True, True, infinite)
 
 class EPDCNode(ClientNode):
     pass
@@ -38,6 +39,9 @@ class Batch(IDable):
         for txn in self.batch:
             yield txn
 
+    def isEmpty(self):
+        return len(self.batch) == 0
+
 class EPDSNode(CDSNode):
     def __init__(self, cnode, index, configs):
         CDSNode.__init__(self, cnode, index, configs)
@@ -48,13 +52,17 @@ class EPDSNode(CDSNode):
         self.skew = random.normalvariate(mu, sigma)
 
     def run(self):
-        yield hold, self, 10 * self.eLen + self.skew
+        initTime = self.skew
+        while initTime < 0:
+            initTime += self.eLen
+        yield hold, self, initTime
         periodEvent = Alarm.setPeriodic(self.eLen)
         lastEpochTime = -1
         count = 0
+        lastBatch = False
         while True:
             #handle batch transaction event
-            if now() > lastEpochTime + self.eLen:
+            if now() > lastEpochTime + self.eLen and not lastBatch:
                 batch = Batch('%s-%s'%(self, count))
                 while len(self.newTxns) > 0:
                     txn = self.newTxns.pop()
@@ -63,14 +71,24 @@ class EPDSNode(CDSNode):
                 self.cnode.paxosPRunner.addRequest(batch)
                 lastEpochTime = now()
                 count += 1
+                self.logger.debug('%s propose new batch %s at %s'
+                                  %(self.ID, batch, now()))
+                if self.shouldClose:
+                    self.logger.debug('%s sending last batch at %s'
+                                      %(self, now()))
+                    lastBatch = True
             #handle new instance
             instances = self.cnode.paxosLearner.instances
             while self.nextIID in instances:
                 readyBatch = instances[self.nextIID]
+                if not readyBatch.isEmpty():
+                    self.logger.debug('%s execute new batch %s at %s'
+                                      %(self.ID, readyBatch, now()))
                 for txn in readyBatch:
                     self.lockingQueue.append(txn)
                     thread = StorageNode.TxnStarter(self, txn)
                     thread.start()
+                self.nextIID += 1
             #wait for new event
             yield waitevent, self, \
                     (periodEvent, self.cnode.paxosLearner.newInstanceEvent)
