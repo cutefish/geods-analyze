@@ -9,9 +9,9 @@ from core import infinite
 from paxos import initPaxosCluster
 from system import BaseSystem, ClientNode, StorageNode
 
-from impl.slpdetmn import SPDSNode
+from impl.slpdetmn import SLPaxosDetmnSystem, SPDSNode
 
-class FPaxosDetmnSystem(BaseSystem):
+class FPaxosDetmnSystem(SLPaxosDetmnSystem):
     """Deterministic system with master timestamp assignment."""
     def newClientNode(self, idx, configs):
         return FPDCNode(self, idx, configs)

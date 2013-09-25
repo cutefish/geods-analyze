@@ -5,15 +5,16 @@ from SimPy.Simulation import waitevent, hold
 from SimPy.Simulation import Process, SimEvent
 
 from core import Thread, infinite
+from perf import Profiler
 from rand import RandInterval
 from rti import RTI, MsgXeiver
 from txns import Action, TxnRunner
 from system import BaseSystem, ClientNode, StorageNode
 
 from paxos import initPaxosCluster
-from impl.cdylock import DLTxnRunner
+from impl.cdylock import CentralDyLockSystem, DLTxnRunner
 
-class MasterDyLockSystem(BaseSystem):
+class MasterDyLockSystem(CentralDyLockSystem):
     """Deterministic replication system."""
     def newClientNode(self, idx, configs):
         return MDLCNode(self, idx, configs)
@@ -25,6 +26,15 @@ class MasterDyLockSystem(BaseSystem):
         initPaxosCluster(
             self.cnodes, self.cnodes, False, False, 'one', 
             True, False, infinite)
+
+    def profile(self):
+        CentralDyLockSystem.profile(self)
+        rootMon = Profiler.getMonitor('/')
+        pmean, pstd, phisto, pcount = \
+                rootMon.getElapsedStats('.*paxos.propose')
+        self.logger.info('paxos.propose.time.mean=%s'%pmean)
+        self.logger.info('paxos.propose.time.std=%s'%pstd)
+        self.logger.info('paxos.propose.time.histo=(%s, %s)'%(phisto))
 
 class MDLCNode(ClientNode):
     def __init__(self, system, ID, configs):
@@ -106,8 +116,10 @@ class MDLTxnRunner(DLTxnRunner):
 
     def commit(self):
         #propose to the paxos agents
+        self.monitor.start('paxos.propose')
         response = self.snode.cnode.paxosPRunner.addRequest(self.txn)
         yield waitevent, self, response.finishedEvent
+        self.monitor.stop('paxos.propose')
         #majority knows about this transaction
         #commit on local
         for step in DLTxnRunner.commit(self):

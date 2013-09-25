@@ -18,7 +18,7 @@ def readconfig(indir):
         key, val = line.split('=')
         key = key.strip()
         val = val.strip()
-        if re.match('[a-zA-Z.]+', val):
+        if re.match('[/a-zA-Z.]+', val):
             config[key] = val
         else:
             config[key] = eval(val)

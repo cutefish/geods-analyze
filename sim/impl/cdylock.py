@@ -1,6 +1,6 @@
 import logging
 
-from SimPy.Simulation import hold
+from SimPy.Simulation import hold, now
 
 from locking import Lockable, LockThread
 from perf import Profiler
@@ -33,6 +33,11 @@ class CentralDyLockSystem(BaseSystem):
         self.logger.info('abort.deadlock.time.mean=%s'%dmean)
         self.logger.info('abort.deadlock.time.std=%s'%dstd)
         self.logger.info('abort.deadlock.time.histo=(%s, %s)'%(dhisto))
+        cmean, cstd, chisto, ccount = \
+                rootMon.getObservedStats('.*deadlock.cycle.length')
+        self.logger.info('deadlock.cycle.length.mean=%s'%cmean)
+        self.logger.info('deadlock.cycle.length.std=%s'%cstd)
+        self.logger.info('deadlock.cycle.length.histo=(%s, %s)'%(chisto))
         hmean, hstd, hhisto, hcount = \
                 rootMon.getObservedStats('.*%s'%LockThread.LOCK_BLOCK_HEIGHT_KEY)
         self.logger.info('block.height.mean=%s'%hmean)
@@ -89,6 +94,7 @@ class DLTxnRunner(TxnRunner):
             yield step
 
     def commit(self):
+        self.logger.debug('%s start commit at %s'%(self, now()))
         wsStrings = []
         #write values to local group
         for itemID, value in self.writeset.iteritems():
@@ -99,8 +105,8 @@ class DLTxnRunner(TxnRunner):
             yield hold, self, RandInterval.get(*self.txn.config.get(
                 'commit.intvl.dist', ('fixed', 0))).next()
         if self.logger.isEnabledFor(logging.DEBUG):
-            self.logger.debug('%s commit {%s}'
-                              %(self.ID, ', '.join([s for s in wsStrings])))
+            self.logger.debug('%s commit {%s} at %s'
+                              %(self.ID, ', '.join([s for s in wsStrings]), now()))
         #write to the original atomically
         dataset = self.snode.system.dataset
         for itemID, value in self.writeset.iteritems():

@@ -156,6 +156,8 @@ class TxnRunner(LockThread):
             except BThread.DeadlockException as e:
                 self.logger.debug('%s aborted because of deadlock %s at %s'
                                   %(self.ID, str(e), now()))
+                self.monitor.observe('deadlock.cycle.length',
+                                     len(e.waiters) + 1)
                 self.monitor.start('abort.deadlock')
                 self.Aborting()
                 for step in self.abort():

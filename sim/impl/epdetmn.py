@@ -6,12 +6,13 @@ from SimPy.Simulation import waitevent, hold
 from SimPy.Simulation import Process, SimEvent
 
 from core import Alarm, IDable, infinite
+from perf import Profiler
 from system import BaseSystem, ClientNode, StorageNode
 
 from paxos import initPaxosCluster
-from impl.cdetmn import CDSNode, DETxnRunner
+from impl.cdetmn import CentralDetmnSystem, CDSNode, DETxnRunner
 
-class EPaxosDetmnSystem(BaseSystem):
+class EPaxosDetmnSystem(CentralDetmnSystem):
     """Deterministic system with master timestamp assignment."""
     def newClientNode(self, idx, configs):
         return EPDCNode(self, idx, configs)
@@ -23,6 +24,15 @@ class EPaxosDetmnSystem(BaseSystem):
         initPaxosCluster(
             self.cnodes, self.cnodes, False, False, 'all', 
             True, True, infinite)
+
+    def profile(self):
+        CentralDetmnSystem.profile(self)
+        rootMon = Profiler.getMonitor('/')
+        pmean, pstd, phisto, pcount = \
+                rootMon.getElapsedStats('.*paxos.propose')
+        self.logger.info('paxos.propose.time.mean=%s'%pmean)
+        self.logger.info('paxos.propose.time.std=%s'%pstd)
+        self.logger.info('paxos.propose.time.histo=(%s, %s)'%(phisto))
 
 class EPDCNode(ClientNode):
     pass
@@ -68,6 +78,7 @@ class EPDSNode(CDSNode):
                     txn = self.newTxns.pop()
                     batch.append(txn)
                 #propose the txn for instance
+                self.monitor.start('paxos.propose.%s'%batch)
                 self.cnode.paxosPRunner.addRequest(batch)
                 lastEpochTime = now()
                 count += 1
@@ -81,6 +92,8 @@ class EPDSNode(CDSNode):
             instances = self.cnode.paxosLearner.instances
             while self.nextIID in instances:
                 readyBatch = instances[self.nextIID]
+                if self.ID in readyBatch.ID:
+                    self.monitor.stop('paxos.propose.%s'%readyBatch)
                 if not readyBatch.isEmpty():
                     self.logger.debug('%s execute new batch %s at %s'
                                       %(self.ID, readyBatch, now()))

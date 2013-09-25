@@ -36,7 +36,7 @@ def StrictFCFSAlgo(lockable):
 
 class CentralDetmnSystem(BaseSystem):
     """
-    Centrialized Deterministic System.
+    Centralized Deterministic System.
     """
     def __init__(self, configs):
         BaseSystem.__init__(self, configs)
@@ -98,15 +98,15 @@ class CDSNode(StorageNode):
                 self.lockingQueue.append(txn)
                 thread = StorageNode.TxnStarter(self, txn)
                 thread.start()
-            if self.shouldClose:
-                self.logger.info(
-                    '%s closing. Wait for threads to terminate at %s'
-                    %(self.ID, now()))
-                #wait for running threads to terminate and close
-                for thread in self.runningThreads:
-                    if not thread.isFinished():
-                        yield waitevent, self, thread.finish
-                break
+            #if self.shouldClose:
+            #    self.logger.info(
+            #        '%s closing. Wait for threads to terminate at %s'
+            #        %(self.ID, now()))
+            #    #wait for running threads to terminate and close
+            #    for thread in self.runningThreads:
+            #        if not thread.isFinished():
+            #            yield waitevent, self, thread.finish
+            #    break
 
     def newTxnRunner(self, txn):
         return DETxnRunner(self, txn)
