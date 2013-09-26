@@ -6,8 +6,9 @@ from SimPy.Simulation import SimEvent
 from SimPy.Simulation import hold, waitevent
 from SimPy.Simulation import initialize, simulate, now
 
-from core import Alarm, IDable, BThread, TimeoutException, infinite
-from perf import Profiler
+import sim
+from sim.core import Alarm, IDable, BThread, TimeoutException, infinite
+from sim.perf import Profiler
 
 def FCFSAlgo(lockable):
     # we use a simple algorithm:

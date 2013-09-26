@@ -2,9 +2,10 @@ import random
 
 import numpy as np
 
-from data import ItemID
-from rand import RandInterval
-from txns import Action, Transaction
+import sim
+from sim.data import ItemID
+from sim.rand import RandInterval
+from sim.txns import Action, Transaction
 
 class UniformTxnGen(object):
     class TxnClass(object):

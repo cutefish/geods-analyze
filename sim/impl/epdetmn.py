@@ -5,12 +5,13 @@ from SimPy.Simulation import now, activate, stopSimulation
 from SimPy.Simulation import waitevent, hold
 from SimPy.Simulation import Process, SimEvent
 
-from core import Alarm, IDable, infinite
-from perf import Profiler
-from system import BaseSystem, ClientNode, StorageNode
+import sim
+from sim.core import Alarm, IDable, infinite
+from sim.perf import Profiler
+from sim.system import BaseSystem, ClientNode, StorageNode
 
-from paxos import initPaxosCluster
-from impl.cdetmn import CentralDetmnSystem, CDSNode, DETxnRunner
+from sim.paxos import initPaxosCluster
+from sim.impl.cdetmn import CentralDetmnSystem, CDSNode, DETxnRunner
 
 class EPaxosDetmnSystem(CentralDetmnSystem):
     """Deterministic system with master timestamp assignment."""

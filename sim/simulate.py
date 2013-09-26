@@ -5,12 +5,13 @@ import time
 
 from SimPy.Simulation import initialize, activate, simulate, now
 
-from configure import Configuration
-from parse import CustomArgsParser
-from perf import Profiler
-from importutils import loadClass
-from rti import RTI
-from verify import Verifier
+import sim
+from sim.configure import Configuration
+from sim.parse import CustomArgsParser
+from sim.perf import Profiler
+from sim.importutils import loadClass
+from sim.rti import RTI
+from sim.verify import Verifier
 
 def main():
     start = time.time()

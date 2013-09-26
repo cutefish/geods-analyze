@@ -1,7 +1,8 @@
 import logging
 
-from core import infinite
-from data import Dataset
+import sim
+from sim.core import infinite
+from sim.data import Dataset
 
 class VerificationError(Exception):
     pass

@@ -5,9 +5,10 @@ from SimPy.Simulation import Process, SimEvent
 from SimPy.Simulation import initialize, activate, simulate, now
 from SimPy.Simulation import waitevent, hold
 
-from core import infinite, Alarm, RetVal, Thread, TimeoutException
-from importutils import loadClass
-from network import IIDLatencyNetwork
+import sim
+from sim.core import infinite, Alarm, RetVal, Thread, TimeoutException
+from sim.importutils import loadClass
+from sim.network import IIDLatencyNetwork
 
 class RTI(object):
     """Remote State Transition Interface.

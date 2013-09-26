@@ -5,6 +5,7 @@ import re
 
 from SimPy.Simulation import now
 
+import sim
 from core import IDable
 from util import PrettyFloat
 

@@ -5,6 +5,7 @@ from SimPy.Simulation import Process, SimEvent
 from SimPy.Simulation import initialize, activate, simulate, now
 from SimPy.Simulation import waitevent, hold
 
+import sim
 from core import Alarm, IDable, RetVal, Thread, TimeoutException, infinite
 from rti import RTI, MsgXeiver
 

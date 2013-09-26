@@ -5,11 +5,12 @@ from SimPy.Simulation import now, activate, stopSimulation
 from SimPy.Simulation import waitevent, hold
 from SimPy.Simulation import Process, SimEvent
 
-from core import Alarm, IDable, Thread
-from rti import MsgXeiver
-from system import BaseSystem, ClientNode, StorageNode
+import sim
+from sim.core import Alarm, IDable, Thread
+from sim.rti import MsgXeiver
+from sim.system import BaseSystem, ClientNode, StorageNode
 
-from impl.cendet import CDSNode
+from sim.impl.cendet import CDSNode
 
 class DeterministicReplicationSystem(BaseSystem):
     """Deterministic replication system."""

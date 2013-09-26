@@ -1,6 +1,7 @@
 import random
 
-from core import infinite
+import sim
+from sim.core import infinite
 
 class ExpoInterval(object):
     def __init__(self, mean, config):

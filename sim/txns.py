@@ -5,9 +5,10 @@ import random
 from SimPy.Simulation import Process, now
 from SimPy.Simulation import hold, waitevent
 
-from core import IDable, BThread, TimeoutException
-from locking import LockThread
-from rand import RandInterval
+import sim
+from sim.core import IDable, BThread, TimeoutException
+from sim.locking import LockThread
+from sim.rand import RandInterval
 
 class Action(object):
     READ, WRITE = ('r', 'w')

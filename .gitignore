@@ -4,3 +4,6 @@
 
 #plot generated files
 *.pdf
+
+#vim files
+*.sw*

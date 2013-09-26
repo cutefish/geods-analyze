@@ -3,12 +3,13 @@ import logging
 from SimPy.Simulation import SimEvent
 from SimPy.Simulation import hold, waitevent, now
 
-from core import BThread
-from locking import Lockable, LockThread
-from perf import Profiler
-from rand import RandInterval
-from system import BaseSystem, StorageNode
-from txns import TxnRunner
+import sim
+from sim.core import BThread
+from sim.locking import Lockable, LockThread
+from sim.perf import Profiler
+from sim.rand import RandInterval
+from sim.system import BaseSystem, StorageNode
+from sim.txns import TxnRunner
 
 def StrictFCFSAlgo(lockable):
     # we use a simple algorithm:

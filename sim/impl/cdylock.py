@@ -2,11 +2,12 @@ import logging
 
 from SimPy.Simulation import hold, now
 
-from locking import Lockable, LockThread
-from perf import Profiler
-from rand import RandInterval
-from system import BaseSystem, StorageNode
-from txns import TxnRunner
+import sim
+from sim.locking import Lockable, LockThread
+from sim.perf import Profiler
+from sim.rand import RandInterval
+from sim.system import BaseSystem, StorageNode
+from sim.txns import TxnRunner
 
 class CentralDyLockSystem(BaseSystem):
     """

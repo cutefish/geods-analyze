@@ -4,12 +4,13 @@ import random
 from SimPy.Simulation import now
 from SimPy.Simulation import waitevent, hold
 
-from core import BThread, IDable, infinite
-from locking import Lockable, LockThread
-from rand import RandInterval
-from rti import MsgXeiver
-from system import BaseSystem, StorageNode
-from txns import TxnRunner
+import sim
+from sim.core import BThread, IDable, infinite
+from sim.locking import Lockable, LockThread
+from sim.rand import RandInterval
+from sim.rti import MsgXeiver
+from sim.system import BaseSystem, StorageNode
+from sim.txns import TxnRunner
 
 class TPCLockingSystem(BaseSystem):
     """Two phase commit protocol with two phase locking implementation. """

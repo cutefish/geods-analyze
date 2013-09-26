@@ -1,5 +1,6 @@
-from core import IDable
-from locking import Lockable
+from sim.core import IDable
+import sim
+from sim.locking import Lockable
 
 class ItemID(IDable):
     GID_PRINT_WIDTH = 2
