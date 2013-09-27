@@ -66,11 +66,16 @@ class CentralDetmnSystem(BaseSystem):
         self.logger.info('num.blocking.lock.mean=%s'%nlmean)
         self.logger.info('num.blocking.lock.std=%s'%nlstd)
         self.logger.info('num.blocking.lock.histo=(%s, %s)'%(nlhisto))
+        nbmean, nbstd, nbhisto, nbcount = \
+                rootMon.getObservedStats('.*num.blocking.txns')
+        self.logger.info('num.blocking.txns.mean=%s'%nbmean)
+        self.logger.info('num.blocking.txns.std=%s'%nbstd)
+        self.logger.info('num.blocking.txns.histo=(%s, %s)'%(nbhisto))
         hmean, hstd, hhisto, hcount = \
                 rootMon.getObservedStats('.*%s.cond'%LockThread.LOCK_BLOCK_HEIGHT_KEY)
-        self.logger.info('block.height.mean=%s'%hmean)
-        self.logger.info('block.height.std=%s'%hstd)
-        self.logger.info('block.height.histo=(%s, %s)'%(hhisto))
+        self.logger.info('block.height.cond.mean=%s'%hmean)
+        self.logger.info('block.height.cond.std=%s'%hstd)
+        self.logger.info('block.height.cond.histo=(%s, %s)'%(hhisto))
         wmean, wstd, whisto, wcount = \
                 rootMon.getObservedStats('.*%s'%LockThread.LOCK_BLOCK_WIDTH_KEY)
         self.logger.info('block.width.mean=%s'%wmean)
@@ -86,6 +91,7 @@ class CDSNode(StorageNode):
         StorageNode.__init__(self, cnode, index, configs)
         #txns that are not yet granted locks, in FCFS order
         self.lockingQueue= []
+        self.waitingSet = set([])
         self.nextEvent = SimEvent()
         self.ts = 0
 
@@ -185,6 +191,7 @@ class DETxnRunner(TxnRunner):
         #the underlying lockable wakeup algorithm is garanteed to wake up
         #threads in FCFS order.
         self.monitor.observe('%s.abs'%LockThread.LOCK_BLOCK_HEIGHT_KEY, self.height)
+        self.monitor.observe('num.blocking.txns', len(self.snode.waitingSet))
         if len(blockEvts) > 0:
             self.monitor.observe('num.blocking.lock', len(blockEvts))
             self.monitor.observe('%s.cond'%LockThread.LOCK_BLOCK_HEIGHT_KEY, self.height)
@@ -192,12 +199,14 @@ class DETxnRunner(TxnRunner):
             self.monitor.observe(LockThread.LOCK_BLOCK_WIDTH_KEY, self.width)
             self.monitor.observe('lock.block.direct.width', self.dwidth)
             self.monitor.start(LockThread.LOCK_BLOCK_KEY)
+            self.snode.waitingSet.add(self)
             while len(blockEvts) != 0:
                 yield waitevent, self, tuple(blockEvts)
                 for evt in self.eventsFired:
                     self.endWait(blockEvts[evt])
                     self.acquired(blockEvts[evt])
                     del blockEvts[evt]
+            self.snode.waitingSet.remove(self)
             self.monitor.stop(LockThread.LOCK_BLOCK_KEY)
         else:
             assert self.height == 1, 'height: %s'%self.height
