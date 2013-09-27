@@ -200,7 +200,7 @@ class DETxnRunner(TxnRunner):
                     del blockEvts[evt]
             self.monitor.stop(LockThread.LOCK_BLOCK_KEY)
         else:
-            assert self.height == 1, 'height: %s'%self, height
+            assert self.height == 1, 'height: %s'%self.height
         self.logger.debug('%s acquired all locks at %s' %(self.ID, now()))
         self.monitor.stop('lock.acquire')
 
