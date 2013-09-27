@@ -188,7 +188,7 @@ class DETxnRunner(TxnRunner):
         if len(blockEvts) > 0:
             self.monitor.observe('num.blocking.lock', len(blockEvts))
             self.monitor.observe('%s.cond'%LockThread.LOCK_BLOCK_HEIGHT_KEY, self.height)
-            assert self.height >= 2, 'height: %s'self.height
+            assert self.height >= 2, 'height: %s'%self.height
             self.monitor.observe(LockThread.LOCK_BLOCK_WIDTH_KEY, self.width)
             self.monitor.observe('lock.block.direct.width', self.dwidth)
             self.monitor.start(LockThread.LOCK_BLOCK_KEY)
@@ -200,7 +200,7 @@ class DETxnRunner(TxnRunner):
                     del blockEvts[evt]
             self.monitor.stop(LockThread.LOCK_BLOCK_KEY)
         else:
-            assert self.height == 0
+            assert self.height == 1, 'height: %s'%self, height
         self.logger.debug('%s acquired all locks at %s' %(self.ID, now()))
         self.monitor.stop('lock.acquire')
 
