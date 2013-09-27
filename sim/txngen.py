@@ -13,7 +13,7 @@ class UniformTxnGen(object):
             self.freq = config['freq']
             self.nreads = config.get('nreads', 0)
             self.nwrites = config.get('nwrites', 0)
-            if self.nreads + self.nwrites == 0:
+            if self.nreads + self.nwrites < 0:
                 raise ValueError(
                     'number of reads and writes is less than zero: %s'%config)
             self.gids = set(config.get('groups', groups.keys()))
