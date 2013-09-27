@@ -186,7 +186,7 @@ class BThread(Thread):
     def height(self):
         """The height of the waiting graph."""
         if self not in BThread.wait_graph:
-            return 0
+            return 1
         heights = []
         for res in BThread.wait_graph[self]:
             if res not in BThread.wait_graph:

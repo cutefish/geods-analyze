@@ -7,6 +7,8 @@ import matplotlib
 matplotlib.use('pdf')
 import matplotlib.pylab as plt
 
+from model.execute import calcNDetmnExec, calcDetmnExec
+
 def readparams(rfile):
     fh = open(rfile, 'r')
     params = []
@@ -33,29 +35,19 @@ def compare(params):
         k = config['nwrites']
         n = config['dataset.groups'][1]
         s = config['intvl']
+        c = config.get('commit.time', 0)
         impl = config['system.impl']
         rt = result['res.mean']
         if (m, k, n, s) not in index:
             index[(m, k, n, s)] = {}
         if 'cdetmn' not in impl:
             index[(m, k, n, s)]['dyn.sim'] = rt
-            pc = float(m - 1) * k / 2 / n
-            pw = 1 - (1 - pc)**k
-            pd = pw**2 / (m - 1)
-            w1 = float(k - 1) / 3 * s + s
-            nc = k * pc
-            A = w1 / s / k
-            alpha = nc * A
-            w = w1 + 0.5 * alpha * w1 + 1.5 * alpha**2 * w1
-            anaRt = (k * s + k * pc * w) * (1 + 2 * pd)
-            index[(m, k, n, s)]['dyn.ana'] = anaRt
+            pc, pd, w, res, beta = calcNDetmnExec(n, m, k, s, c)
+            index[(m, k, n, s)]['dyn.ana'] = res
         else:
             index[(m, k, n, s)]['det.sim'] = rt
-            pt = 1 - (float(n - (m - 1)*k) / n)**k
-            p1 = (float(n-k)/ n)**k
-            h = (m - 2) *(1 - (float(n - k) / n)**k) + 1
-            anaRt = k * s + pt * (1 - 0.5 * p1 + h - 1 + (m - h - 1) / 2 * (1 - p1)**2) * k * s
-            index[(m, k, n, s)]['det.ana'] = anaRt
+            pt, h, w, res, beta = calcDetmnExec(n, m, k, s)
+            index[(m, k, n, s)]['det.ana'] = res
     x = []
     dyn_sim = []
     det_sim = []
@@ -88,12 +80,21 @@ def compare(params):
     axes.set_ylabel('Non-det / Det')
     axes.set_xlabel('Lock conflict rate')
     fig.legend((line1, line2), ('sim', 'model'), loc='upper center', ncol=2)
-    fig.savefig('compare_rt.pdf')
+    fig.savefig('tmp/compare_rt.pdf')
 
 class DataPoints(object):
     def __init__(self):
         self.x = []
         self.y = []
+
+def findIndex(n, l):
+    index = len(l)
+    mindiff = n
+    for i, v in enumerate(l):
+        if abs(v - n) < mindiff:
+            index = i
+            mindiff = abs(v - n)
+    return index
 
 def approx(params):
     ndetData = {}
@@ -104,6 +105,14 @@ def approx(params):
         ndetData[k] = DataPoints()
     for k in detKeys:
         detData[k] = DataPoints()
+    sshift = 10 * 5 * 5
+    nshift = 10 * 5
+    mshift = 10
+    kshift = 1
+    sindex = [10, 20, 30, 40, 50]
+    nindex = [1024, 4096, 16384]
+    mindex = [12, 16, 20]
+    kindex = [8, 12, 16, 20]
     for i, param in enumerate(params):
         config, result = param
         m = config['max.num.txns.in.system']
@@ -111,27 +120,20 @@ def approx(params):
         n = config['dataset.groups'][1]
         s = config['intvl']
         c = config.get('commit.time', 0)
-        gamma = float(c) / s
+        index = findIndex(s, sindex) * sshift + \
+                findIndex(k, kindex) * kshift + \
+                findIndex(m, mindex) * mshift + \
+                findIndex(n, nindex) * nshift
         if config['system.impl'] == 'impl.cdylock.CentralDyLockSystem':
             #model
-            l = float(k) / 2
-            L = float(m - 1) * l
-            #L = n * (1 - (1 - l / n)**(m - 1))
-            pcM = L / n
-            pwM = 1 - (1 - pcM)**k
-            pdM = float(m - 1) * k**4 / 12 / n**2
-            w1M = float(k - 1) / 3 * s + s + gamma * s
-            nc = k * pcM
-            A = w1M / s / k
-            alpha = nc * A
-            wM = w1M + 0.5 * alpha * w1M + 1.5 * alpha**2 * w1M
-            resM = (k * s + gamma * s + k * pcM * wM) * (1 + 2 * pdM)
+            pcM, pdM, wM, resM, beta = calcNDetmnExec(n, m, k, s, c)
             #real
             pcR = result['lock.block.prob']
             pdR = result['abort.deadlock.prob']
             wR = result['lock.block.time.mean']
             resR = result['res.mean']
             lR = result['load.mean']
+            hR = result['block.height.mean']
             #data
             ndetData['pc'].x.append(pcM)
             ndetData['pc'].y.append(pcR / pcM)
@@ -143,20 +145,12 @@ def approx(params):
             ndetData['res'].y.append(resR / resM)
             ndetData['load'].x.append(pcM)
             ndetData['load'].y.append(lR / m)
+            #ndetData['h'].x.append(pcM)
+            #ndetData['h'].y.append((h1 + ph2 * h2 + ph3 * h3) / wR)
         elif config['system.impl'] == \
                 'impl.cdetmn.CentralDetmnSystem':
             #model
-            ptM = 1 - (float(n - (m - 1)*k) / n)**k
-            p = (1 - (float(n - k) / n)**k)
-            hcond = (m - 2) * p
-            #hcond = 0
-            #for i in range(0, m - 1):
-            #    hcond += i * sp.misc.comb(m - 2, i) * p**i * (1 - p)**(m - 2 - i)
-            hM = hcond + 1
-            #wM = hM * k * s
-            wM = (0.5 * p + hM) * k * s
-            #wM = (0.5 * p + hM + (m - hM - 1) / 2 * (1 - (float(n - k)/n)**k)**2) * k * s
-            resM = k * s + ptM * wM
+            ptM, hM, wM, resM, beta = calcDetmnExec(n, m, k, s)
             #real
             ptR = result['lock.block.prob']
             hR = result['block.height.mean']
@@ -164,15 +158,15 @@ def approx(params):
             resR = result['res.mean']
             loadR = result.get('load.mean', m)
             #data
-            detData['pt'].x.append(p)
+            detData['pt'].x.append(beta)
             detData['pt'].y.append(ptR / ptM)
-            detData['h'].x.append(p)
+            detData['h'].x.append(beta)
             detData['h'].y.append(hR / hM)
-            detData['w'].x.append(p)
+            detData['w'].x.append(beta)
             detData['w'].y.append(wR / wM)
-            detData['res'].x.append(p)
+            detData['res'].x.append(beta)
             detData['res'].y.append(resR / resM)
-            detData['load'].x.append(p)
+            detData['load'].x.append(beta)
             detData['load'].y.append(loadR / m)
         else:
             raise ValueError('Unknown system: %s'%config['system.impl'])
@@ -180,72 +174,12 @@ def approx(params):
         fig = plt.figure()
         axes = fig.add_subplot(111)
         axes.plot(val.x, val.y, '.r')
-        fig.savefig('%s_%s.pdf'%('ccomp_ndet', key))
+        fig.savefig('tmp/%s_%s.pdf'%('ccomp_ndet', key))
     for key, val in detData.iteritems():
         fig = plt.figure()
         axes = fig.add_subplot(111)
         axes.plot(val.x, val.y, '+b')
-        fig.savefig('%s_%s.pdf'%('ccomp_det', key))
-
-def toss(m, n, k, queue, heights, keepLast):
-    newqueue = []
-    newheights = []
-    if keepLast:
-        #remove entries with 0 height
-        for i, height in enumerate(heights):
-            if height > 0:
-                newqueue.append(queue[i])
-                newheights.append(-1)
-    #add new items
-    while len(newqueue) < m:
-        items = getItems(n, k)
-        newqueue.append(items)
-        newheights.append(-1)
-    #compute new heights
-    computeHeights(newqueue, newheights)
-    return newqueue, newheights
-
-def getItems(n, k):
-    items = set([])
-    while len(items) < k:
-        r = random.randint(0, n - 1)
-        items.add(r)
-    return items
-
-def computeHeights(queue, heights):
-    _computeHeights(queue, heights, len(queue) - 1)
-
-def _computeHeights(queue, heights, i):
-    if i == 0:
-        heights[0] = 0
-        return
-    if heights[i] != -1:
-        return
-    maxheight = 0
-    items = queue[i]
-    for j in range(i):
-        if heights[j] == -1:
-            _computeHeights(queue, heights, j)
-    for j in range(i):
-        if len(items.intersection(queue[j])) != 0:
-            if maxheight < heights[j] + 1:
-                maxheight = heights[j] + 1
-    heights[i] = maxheight
-
-def run(m, n, k, keepLast):
-    results = []
-    for i in range(m):
-        results.append([])
-    queue = []
-    heights = []
-    for i in range(1000):
-        queue, heights = toss(m, n, k, queue, heights, keepLast)
-        for j, height in enumerate(heights):
-            results[j].append(height)
-    means = []
-    for i in range(len(results)):
-        means.append(np.mean(results[i]))
-    return means[-1]
+        fig.savefig('tmp/%s_%s.pdf'%('ccomp_det', key))
 
 def main():
     if len(sys.argv) != 2:
