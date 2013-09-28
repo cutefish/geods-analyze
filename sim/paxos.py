@@ -990,7 +990,7 @@ NETWORK_CONFIG = {
 }
 THRESHOLD = 0.5
 INTERVAL = 500
-NUM_VALUES = 10000
+NUM_VALUES = 1000
 
 def initTest():
     initialize()
@@ -1089,7 +1089,7 @@ def testMultiplePaxosInterleavedIID():
     testrunner.start()
     simulate(until=10000000)
     verifyResult(learners)
-    logging.info('===== END TEST CLASSIC PAXOS INTERLEAVEDIID =====')
+    logging.info('===== END TEST MULTIPLE PAXOS INTERLEAVEDIID =====')
 
 def testFastPaxosCoordinated():
     logging.info('===== START TEST FAST PAXOS COORDINATED=====')

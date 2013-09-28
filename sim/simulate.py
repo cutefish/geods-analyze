@@ -45,7 +45,6 @@ def main():
     for txn, at in txnGen.generate():
         system.schedule(txn, at)
     system.start()
-
     #pdb.set_trace()
     #simulate
     logger.info('\n#####  START SIMULATION  #####\n')

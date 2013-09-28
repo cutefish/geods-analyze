@@ -1,12 +1,12 @@
+import sys
 import random
 
 import sim
-from sim.core import infinite
 
 class ExpoInterval(object):
     def __init__(self, mean, config):
         self.lb = config.get('lb', 0)
-        self.ub = config.get('ub', infinite)
+        self.ub = config.get('ub', sys.maxint)
         self.lambd = float(1) / float(mean)
 
     def next(self):
@@ -18,7 +18,7 @@ class ExpoInterval(object):
 class NormInterval(object):
     def __init__(self, mean, config):
         self.lb = config.get('lb', 0)
-        self.ub = config.get('ub', infinite)
+        self.ub = config.get('ub', sys.maxint)
         self.mu = mean
         self.sigma = config.get('sigma', 0)
 
@@ -38,7 +38,7 @@ class FixedInterval(object):
 class UniformInterval(object):
     def __init__(self, mean, config):
         self.lb = config.get('lb', 0)
-        self.ub = config.get('ub', infinite)
+        self.ub = config.get('ub', sys.maxint)
         self.span = float(self.ub - self.lb)
 
     def next(self):
