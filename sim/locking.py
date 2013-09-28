@@ -207,7 +207,8 @@ class LockThread(IDable, BThread):
 
     def lock(self, lockable, state, timeout=infinite):
         self.logger.debug(
-            '%s lock %r at %s' %(self.ID, lockable, now()))
+            '%s lock %r with %s at %s' 
+            %(self.ID, lockable, lockable.STATESTRS[state], now()))
         #try acquire the lockable
         acquired = lockable.tryAcquire(self, state)
         if acquired:
@@ -224,32 +225,36 @@ class LockThread(IDable, BThread):
         lockable.ensureOwnersAlive()
         self.tryWait(lockable)
         # we pass the tests, now we wait
-        timeoutEvt = Alarm.setOnetime(timeout)
+        events = []
+        if timeout != infinite:
+            timeoutEvt = Alarm.setOnetime(timeout, 'lock-wait')
+            events.append(timeoutEvt)
         self.monitor.start(LockThread.LOCK_BLOCK_KEY)
         blockEvt = lockable.block(self, state)
+        events.append(blockEvt)
         self.monitor.observe(LockThread.LOCK_BLOCK_HEIGHT_KEY, self.height)
         self.monitor.observe(LockThread.LOCK_BLOCK_WIDTH_KEY, self.width)
-        yield waitevent, self, (blockEvt, timeoutEvt)
+        yield waitevent, self, events
         # we are waked up
         self.endWait(lockable)
         self.monitor.stop(LockThread.LOCK_BLOCK_KEY)
-        if timeoutEvt in self.eventsFired:
-            self.logger.debug(
-                '%s "timedout" on %r at %s' %(self.ID, lockable, now()))
-            raise TimeoutException(lockable, Lockable.STATESTRS[state])
-        else:
-            #we are already the owner of the lock
-            assert lockable.isLockedBy(self) and lockable.isState(state), \
-                    ('%s waked up but is not the owner of %r with state %s'
-                     %(self.ID, lockable, Lockable.STATESTRS[state]))
-            self.logger.debug(
-                '%s acquired %r after wait at %s' %(self.ID, lockable, now()))
-            #notify deadlock detection
-            self.acquired(lockable)
+        if timeout != infinite:
+            if timeoutEvt in self.eventsFired:
+                self.logger.debug(
+                    '%s "timedout" on %r at %s' %(self.ID, lockable, now()))
+                raise TimeoutException(lockable, Lockable.STATESTRS[state])
+        #we are already the owner of the lock
+        assert lockable.isLockedBy(self) and lockable.isState(state), \
+                ('%s waked up but is not the owner of %r with state %s'
+                 %(self.ID, lockable, Lockable.STATESTRS[state]))
+        self.logger.debug(
+            '%s acquired %r after wait at %s' %(self.ID, lockable, now()))
+        #notify deadlock detection
+        self.acquired(lockable)
 
     def unlock(self, lockable):
         self.logger.debug(
-            '%s unlock %s at %s' %(self.ID, lockable.ID, now()))
+            '%s unlock %r at %s' %(self.ID, lockable, now()))
         lockable.release(self)
         yield hold, self
         self.released(lockable)

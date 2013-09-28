@@ -3,6 +3,8 @@ import logging.config
 import sys
 import time
 
+import pdb;
+
 from SimPy.Simulation import initialize, activate, simulate, now
 
 import sim
@@ -44,6 +46,7 @@ def main():
         system.schedule(txn, at)
     system.start()
 
+    #pdb.set_trace()
     #simulate
     logger.info('\n#####  START SIMULATION  #####\n')
     simulate(until=configs.get('simulation.duration', 600000))

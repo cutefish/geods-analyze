@@ -1,5 +1,6 @@
 import logging
 import math
+import pdb
 
 from SimPy.Simulation import Process, SimEvent
 from SimPy.Simulation import initialize, activate, simulate, now
@@ -731,16 +732,18 @@ class Proposer(IDable, Thread, MsgXeiver):
             if self.quorum.isReady:
                 break
             events = self.getWaitMsgEvents('1b')
-            timeoutEvent = Alarm.setOnetime(self.timeout)
-            events.append(timeoutEvent)
+            if self.timeout != infinite:
+                timeoutEvent = Alarm.setOnetime(self.timeout, name='pr-1b-tm')
+                events.append(timeoutEvent)
             events.append(self.learner.newInstanceEvent)
             yield waitevent, self, events
-            if timeoutEvent in self.eventsFired:
-                #no progress, we need to do something
-                if self.quorum.maxRnd > self.crnd:
-                    raise RoundFailException
-                else:
-                    raise TimeoutException
+            if self.timeout != infinite:
+                if timeoutEvent in self.eventsFired:
+                    #no progress, we need to do something
+                    if self.quorum.maxRnd > self.crnd:
+                        raise RoundFailException
+                    else:
+                        raise TimeoutException
 
     def _pickValue(self):
         #pick a value from the quorum
@@ -767,18 +770,20 @@ class Proposer(IDable, Thread, MsgXeiver):
     def _checkValue(self):
         while True:
             events = []
-            timeoutEvent = Alarm.setOnetime(self.timeout)
-            events.append(timeoutEvent)
+            if self.timeout != infinite:
+                timeoutEvent = Alarm.setOnetime(self.timeout, name='pr-cv-tm')
+                events.append(timeoutEvent)
             events.append(self.learner.newInstanceEvent)
             yield waitevent, self, events
             if self.instanceID in self.learner.instances:
                 break
-            if timeoutEvent in self.eventsFired:
-                maxrnd = self.learner.getQuorumMaxRnd(self.instanceID)
-                if maxrnd > self.crnd:
-                    raise RoundFailException
-                else:
-                    raise TimeoutException
+            if self.timeout != infinite:
+                if timeoutEvent in self.eventsFired:
+                    maxrnd = self.learner.getQuorumMaxRnd(self.instanceID)
+                    if maxrnd > self.crnd:
+                        raise RoundFailException
+                    else:
+                        raise TimeoutException
 
     def fastPropose(self):
         while True:
@@ -883,6 +888,7 @@ class ProposerRunner(IDable, Thread, MsgXeiver):
                     response = self.responses[prev.value]
                     response.instanceID = prev.instanceID
                     response.finishedEvent.signal()
+                    del self.responses[prev.value]
             yield waitevent, self, (self.newRequestEvent, self.newFinishEvent)
 
 def initPaxosCluster(pnodes, anodes, coordinatedRecovery, 
@@ -959,6 +965,7 @@ class TestRunner(Thread):
         self.prunners = prunners
         self.threshold = threshold
         self.interval = interval
+        self.logger = logging.getLogger(self.__class__.__name__)
 
     def run(self):
         while len(self.values) > 0:
@@ -969,6 +976,10 @@ class TestRunner(Thread):
                 if r > self.threshold:
                     value = self.values.pop(0)
                     prunner.addRequest(value)
+                    #for debug
+                    if len(self.values) % 100 == 0:
+                        self.logger.info('values left: %s, now: %s'
+                                         %(len(self.values), now()))
             yield hold, self, self.interval
 
 NUM_PNODES = 5
@@ -979,7 +990,7 @@ NETWORK_CONFIG = {
 }
 THRESHOLD = 0.5
 INTERVAL = 500
-NUM_VALUES = 100
+NUM_VALUES = 10000
 
 def initTest():
     initialize()
@@ -1022,7 +1033,7 @@ def testClassicPaxos():
         learners.append(pnode.paxosLearner)
     testrunner = TestRunner(values, prunners, THRESHOLD, INTERVAL)
     testrunner.start()
-    simulate(until=1000000)
+    simulate(until=10000000)
     verifyResult(learners)
     logging.info('===== END TEST CLASSIC PAXOS =====')
 
@@ -1040,7 +1051,7 @@ def testClassicPaxosInterleavedIID():
         learners.append(pnode.paxosLearner)
     testrunner = TestRunner(values, prunners, THRESHOLD, INTERVAL)
     testrunner.start()
-    simulate(until=1000000)
+    simulate(until=10000000)
     verifyResult(learners)
     logging.info('===== END TEST CLASSIC PAXOS INTERLEAVEDIID =====')
 
@@ -1058,7 +1069,7 @@ def testMultiplePaxos():
         learners.append(pnode.paxosLearner)
     testrunner = TestRunner(values, prunners, THRESHOLD, INTERVAL)
     testrunner.start()
-    simulate(until=1000000)
+    simulate(until=10000000)
     verifyResult(learners)
     logging.info('===== END TEST MULTI PAXOS =====')
 
@@ -1076,7 +1087,7 @@ def testMultiplePaxosInterleavedIID():
         learners.append(pnode.paxosLearner)
     testrunner = TestRunner(values, prunners, THRESHOLD, INTERVAL)
     testrunner.start()
-    simulate(until=1000000)
+    simulate(until=10000000)
     verifyResult(learners)
     logging.info('===== END TEST CLASSIC PAXOS INTERLEAVEDIID =====')
 
@@ -1094,7 +1105,7 @@ def testFastPaxosCoordinated():
         learners.append(pnode.paxosLearner)
     testrunner = TestRunner(values, prunners, THRESHOLD, INTERVAL)
     testrunner.start()
-    simulate(until=1000000)
+    simulate(until=10000000)
     verifyResult(learners)
     logging.info('===== END TEST FAST PAXOS COORDINATED=====')
 
@@ -1112,12 +1123,18 @@ def testFastPaxosUncoordinated():
         learners.append(pnode.paxosLearner)
     testrunner = TestRunner(values, prunners, THRESHOLD, INTERVAL)
     testrunner.start()
-    simulate(until=1000000)
+    simulate(until=10000000)
     verifyResult(learners)
     logging.info('===== END TEST FAST PAXOS UNCOORDINATED=====')
 
 def test():
-    logging.basicConfig(level=logging.DEBUG)
+    logging.basicConfig(level=logging.INFO, filename='/tmp/geods-paxos-test')
+    console = logging.StreamHandler()
+    console.setLevel(logging.INFO)
+    formatter = logging.Formatter('%(name)-12s: %(levelname)-8s %(message)s')
+    console.setFormatter(formatter)
+    logging.getLogger('').addHandler(console)
+    #pdb.set_trace()
     testClassicPaxos()
     testClassicPaxosInterleavedIID()
     testMultiplePaxos()

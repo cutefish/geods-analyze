@@ -104,6 +104,9 @@ class BaseSystem(Thread):
         self.logger.debug('Txn %s arrive in system at %s, progress=A:%s/%s'
                          %(txn.ID, now(),
                            self.numTxnsArrive, self.numTxnsSched))
+        #for debug
+        if self.numTxnsArrive % 100 == 0:
+            pass
 
     def onTxnLoss(self, txn):
         self.numTxnsLoss += 1
@@ -134,7 +137,7 @@ class BaseSystem(Thread):
                     #simulate txn arrive as scheduled
                     at, txn = self.txnsToRun.get()
                     while now() < at:
-                        nextArrive = Alarm.setOnetime(at - now())
+                        nextArrive = Alarm.setOnetime(at - now(), 'txn-arr')
                         yield waitevent, self, nextArrive
                         if now() < at:
                             continue
@@ -168,7 +171,7 @@ class BaseSystem(Thread):
             self.printProgress()
             #sleep in sim world if closing
             if self.state == BaseSystem.CLOSING:
-                sleep = Alarm.setOnetime(self.simThr)
+                sleep = Alarm.setOnetime(self.simThr, 'closing')
                 yield waitevent, self, sleep
 
     def startupNodes(self):

@@ -104,12 +104,16 @@ class RTI(object):
         self._thread.fwPktSize = fwPktSize
         self._thread.bwPktSize = bwPktSize
         self._thread.start()
-        tmoutEvt = Alarm.setOnetime(timeout)
-        yield waitevent, self, (self._thread.finish, tmoutEvt)
-        if tmoutEvt in self.eventsFired:
-            raise TimeoutException(
-                'rm=%s, args=%s, timeout=%s'
-                %(self._thread.rm, self._thread.args, timeout))
+        events = [self._thread.finish]
+        if timeout != infinite:
+            tmoutEvt = Alarm.setOnetime(timeout, name='rtiwait')
+            events.append(tmoutEvt)
+        yield waitevent, self, events
+        if timeout != infinite:
+            if tmoutEvt in self.eventsFired:
+                raise TimeoutException(
+                    'rm=%s, args=%s, timeout=%s'
+                    %(self._thread.rm, self._thread.args, timeout))
 
 class DLLNode(object):
     """A double-linked list node for lru cache."""
@@ -233,11 +237,13 @@ class MsgXeiver(RTI):
         if self.checkMsg(tags):
             return
         events = self.getWaitMsgEvents(tags)
-        timeoutEvt = Alarm.setOnetime(timeout)
-        events.append(timeoutEvt)
+        if timeout != infinite:
+            timeoutEvt = Alarm.setOnetime(timeout, 'wait-tm')
+            events.append(timeoutEvt)
         yield waitevent, self, events
-        if timeoutEvt in self.eventsFired:
-            raise TimeoutException('rti.waitMsg', tags)
+        if timeout != infinite:
+            if timeoutEvt in self.eventsFired:
+                raise TimeoutException('rti.waitMsg', tags)
         for tag in tags:
             del self.rtiNotifiers[tag]
 

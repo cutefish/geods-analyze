@@ -62,7 +62,7 @@ class DRCNode(ClientNode):
         yield hold, self, self.skew
         self.acceptor.start()
         self.learner.start()
-        timer = Alarm.setPeriodic(self.epochLength)
+        timer = Alarm.setPeriodic(self.epochLength, 'epoch')
         while not self.shouldClose:
             yield waitevent, self, (self.closeEvent, timer)
             if timer in self.eventsFired:

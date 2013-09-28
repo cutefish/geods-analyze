@@ -5,7 +5,7 @@ from SimPy.Simulation import Process, SimEvent
 from SimPy.Simulation import hold, waitevent
 from SimPy.Simulation import initialize, activate, simulate, now
 
-infinite = sys.maxsize
+infinite = -1
 
 class IDable(object):
     def __init__(self, ID):
@@ -193,6 +193,8 @@ class BThread(Thread):
                 heights.append(0)
                 continue
             for thread in BThread.wait_graph[res]:
+                if thread == self:
+                    continue
                 heights.append(thread.height)
         return max(heights) + 1
 

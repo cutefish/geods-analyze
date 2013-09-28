@@ -61,13 +61,14 @@ class EPDSNode(CDSNode):
         mu = self.configs.get('epdetmn.epoch.skew.mu', 0)
         sigma = self.configs.get('epdetmn.epoch.skew.sigma', 0)
         self.skew = random.normalvariate(mu, sigma)
+        self.gcID = 0
 
     def run(self):
         initTime = self.skew
         while initTime < 0:
             initTime += self.eLen
         yield hold, self, initTime
-        periodEvent = Alarm.setPeriodic(self.eLen)
+        periodEvent = Alarm.setPeriodic(self.eLen, name='epoch')
         lastEpochTime = -1
         count = 0
         lastBatch = False
@@ -103,6 +104,11 @@ class EPDSNode(CDSNode):
                     thread = StorageNode.TxnStarter(self, txn)
                     thread.start()
                 self.nextIID += 1
+            #garbage collection
+            if len(instances) > 1000:
+                for i in range(self.gcID, self.nextIID / 2):
+                    del instances[i]
+                self.gcID = self.nextIID / 2
             #wait for new event
             yield waitevent, self, \
                     (periodEvent, self.cnode.paxosLearner.newInstanceEvent)
