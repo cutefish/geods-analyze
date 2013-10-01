@@ -1,6 +1,3 @@
-import logging
-import sys
-
 from SimPy.Simulation import Process, SimEvent
 from SimPy.Simulation import hold, waitevent
 from SimPy.Simulation import initialize, activate, simulate, now
@@ -235,7 +232,7 @@ class BThread(Thread):
         sccs = BThread.TarjanAlgo.findscc(BThread.wait_graph, self)
         #if only two entities in the scc, then this means A->B->A.
         #this is possible in cases such as lock promotion from shared to
-        #exclusive, which is actually not a deadlock. 
+        #exclusive, which is actually not a deadlock.
         #scc with len less than 2 are not deadlocks.
         sccs[:] = [ scc for scc in sccs if len(scc) > 2]
         if len(sccs) == 0:
@@ -262,7 +259,7 @@ class BThread(Thread):
             self.obj = obj
             self.index = -1
             self.lowlink = -1
-    
+
     class TarjanAlgo(object):
         """
         http://en.wikipedia.org/wiki/Tarjan%27s_strongly_connected_components_algorithm
@@ -363,7 +360,7 @@ class Main(Thread):
         print 'child thread finish at %s' %now()
 
 def testThread():
-    mainthread = Main().start()
+    Main().start()
 
 def testTanjanAlgo():
     """The graph example is from tarjan's paper:
@@ -390,13 +387,13 @@ def testTanjanAlgo():
     }
     for vertex in vertices.values():
         sccs = BThread.TarjanAlgo.findscc(graph, vertex)
-        printStr = ('%s: %s' 
+        printStr = ('%s: %s'
                     %(vertex.ID, ', '.join(
                         ['[%s]'%(', '.join(['%s'%v.ID for v in scc]))
                          for scc in sccs])))
         print printStr
     sccs = BThread.TarjanAlgo.findscc(graph)
-    printStr = ('all: %s' 
+    printStr = ('all: %s'
                 %(', '.join(
                     ['[%s]'%(', '.join(['%s'%v.ID for v in scc]))
                      for scc in sccs])))

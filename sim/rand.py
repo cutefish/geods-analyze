@@ -1,8 +1,6 @@
 import sys
 import random
 
-import sim
-
 class ExpoInterval(object):
     def __init__(self, mean, config):
         self.lb = config.get('lb', 0)

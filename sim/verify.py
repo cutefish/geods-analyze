@@ -1,9 +1,3 @@
-import logging
-
-import sim
-from sim.core import infinite
-from sim.data import Dataset
-
 class VerificationError(Exception):
     pass
 
@@ -29,7 +23,7 @@ class Verifier(object):
                     for replica in group.iteritems():
                         item = dataset[replica.itemID]
                         item.verifyConsistent(replica)
-                        
+
 #    def checkTxnValues(self, system):
 #        for txns in system.txns.values():
 #            if len(txns) == 1:
@@ -68,7 +62,7 @@ class Verifier(object):
 #
 #    To check whether a commit is valid, the consistency model will try to to
 #    assign the committing a timestamp. If a valid assignment can be found by
-#    the model, then the commit is valid. 
+#    the model, then the commit is valid.
 #
 #    We check whether a conflict is reasonable by comparing the lock set and
 #    checking the state of the transaction.
@@ -155,7 +149,7 @@ class Verifier(object):
 #            if lb >= ub:
 #                raise VerificationError(
 #                    'assign ts fail on readset txn=%s item=%s '
-#                    'lb=%s ub=%s version=%s currVersion=%s' 
+#                    'lb=%s ub=%s version=%s currVersion=%s'
 #                    %(txn.ID, itemID, lb, ub, version, currVersion))
 #        #writeset
 #        for itemID in txn.writeset:
@@ -166,7 +160,7 @@ class Verifier(object):
 #            if lb >= ub:
 #                raise VerificationError(
 #                    'assign ts fail on writeset txn=%s item=%s '
-#                    'lb=%s ub=%s version=%s currVersion=%s' 
+#                    'lb=%s ub=%s version=%s currVersion=%s'
 #                    %(txn.ID, itemID, lb, ub, version, currVersion))
 #        if lb + 1 >= ub:
 #            return float(lb + ub) / 2

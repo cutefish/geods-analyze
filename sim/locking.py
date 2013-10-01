@@ -6,14 +6,13 @@ from SimPy.Simulation import SimEvent
 from SimPy.Simulation import hold, waitevent
 from SimPy.Simulation import initialize, simulate, now
 
-import sim
 from sim.core import Alarm, IDable, BThread, TimeoutException, infinite
 from sim.perf import Profiler
 
 def FCFSAlgo(lockable):
     # we use a simple algorithm:
     #   Wake up the first thread in queue. If it acquires a shared mode,
-    #   then wake up all the other shared threads in queue. 
+    #   then wake up all the other shared threads in queue.
     if len(lockable.blockQueue) == 0:
         return None, None
     threads = []
@@ -26,7 +25,7 @@ def FCFSAlgo(lockable):
         for thread in lockable.blockQueue[1:]:
             s, e = lockable.blockedThreads[thread]
             if s == Lockable.SHARED:
-                lockable.logger.debug('Lockable %r wake up %s' 
+                lockable.logger.debug('Lockable %r wake up %s'
                                   %(lockable, thread.ID))
                 e.signal()
                 threads.append(thread)
@@ -35,16 +34,16 @@ def FCFSAlgo(lockable):
 class Lockable(IDable):
     """ An object that can be locked.
 
-    Only a LockThread can acquire Lockable objects. 
-    
+    Only a LockThread can acquire Lockable objects.
+
     Lockable object can be acquired in SHARED or EXCLUSIVE mode. When acquired,
     the lock is owned by a the LockThread. SHARED state can have multiple
     owners all acquired the lock with SHARED mode. EXCLUSIVE will have only one
-    onwer. 
+    onwer.
 
     LockThread that cannot be granted the object are blocked. Blocked
-    LockThreads wait in a blocked queue until some owner release the lock. 
-    
+    LockThreads wait in a blocked queue until some owner release the lock.
+
     The Lockable object is reentrant, i.e., an owner acquiring the object has
     no effect when it has already have been granted the object; releasing the
     object multiple times also has no effect.
@@ -81,10 +80,10 @@ class Lockable(IDable):
         return self.state == Lockable.UNLOCKED
 
     def isShared(self):
-        return self.state == Lock.SHARED
+        return self.state == Lockable.SHARED
 
     def isExclusive(self):
-        return self.state == Lock.EXCLUSIVE
+        return self.state == Lockable.EXCLUSIVE
 
     def isLockedBy(self, thread):
         return thread in self.owners
@@ -98,7 +97,7 @@ class Lockable(IDable):
             #reentrancy
             assert self.state != Lockable.UNLOCKED, str(self)
             if self.state == Lockable.EXCLUSIVE:
-                assert len(self.owners) == 1, ' '.join([o in self.owners])
+                assert len(self.owners) == 1, ' '.join([o for o in self.owners])
                 self.logger.debug(
                     '%s already has lockable %r' %(thread.ID, self))
                 return True
@@ -137,14 +136,14 @@ class Lockable(IDable):
     def release(self, thread):
         """Release self to from thread."""
         if thread not in self.owners:
-            self.logger.debug('%s not in lockable %s owner set' 
+            self.logger.debug('%s not in lockable %s owner set'
                               %(thread.ID, self.ID))
             return
         self.owners.remove(thread)
         assert self.state != Lockable.UNLOCKED, str(self)
         if self.state == Lockable.EXCLUSIVE:
             assert len(self.owners) == 0, \
-                    ('Lockable: %s, owners: %s' 
+                    ('Lockable: %s, owners: %s'
                      %(self.ID, ' '.join([o.ID for o in self.owners])))
             self.state = Lockable.UNLOCKED
         #self.state == SHARED
@@ -163,7 +162,7 @@ class Lockable(IDable):
                 state, event = self.blockedThreads[owner]
                 assert self.state == Lockable.SHARED and \
                         state == Lockable.EXCLUSIVE, \
-                        ('Lockable %s and owner blocked with state %s' 
+                        ('Lockable %s and owner blocked with state %s'
                          %(self, Lockable.STATESTRS[state]))
                 self.logger.debug('%s wake up self for promotion on Lockable %s'
                                   %(owner.ID, self.ID))
@@ -207,7 +206,7 @@ class LockThread(IDable, BThread):
 
     def lock(self, lockable, state, timeout=infinite):
         self.logger.debug(
-            '%s lock %r with %s at %s' 
+            '%s lock %r with %s at %s'
             %(self.ID, lockable, lockable.STATESTRS[state], now()))
         #try acquire the lockable
         acquired = lockable.tryAcquire(self, state)

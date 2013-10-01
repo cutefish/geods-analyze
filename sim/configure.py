@@ -10,6 +10,12 @@ class Configuration(object):
     def __getitem__(self, key):
         return self.conf[key]
 
+    def __setitem__(self, key, value):
+        self.conf[key] = value
+
+    def __str__(self):
+        return self.conf.__str__()
+
     def get(self, key, default=None):
         return self.conf.get(key, default)
 
@@ -86,15 +92,6 @@ class Configuration(object):
         fh = open(fn, 'w')
         for key, val in self.conf.iteritems():
             fh.write('%s = %s\n' %(key, val))
-
-    def __getitem__(self, key):
-        return self.conf[key]
-
-    def __setitem__(self, key, value):
-        self.conf[key] = value
-
-    def __str__(self):
-        return self.conf.__str__()
 
 #####  TEST  #####
 

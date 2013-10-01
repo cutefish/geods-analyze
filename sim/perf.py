@@ -5,9 +5,7 @@ import re
 
 from SimPy.Simulation import now
 
-import sim
-from core import IDable
-from util import PrettyFloat
+from sim.core import IDable
 
 class StateMonitor(IDable):
     START, STOP, OBSERVE = range(3)
@@ -33,14 +31,16 @@ class StateMonitor(IDable):
             curr._append(name, state, time, attr)
             curr = curr.parent
 
-    def start(self, name):
+    def start(self, name, time=None):
         name = '%s.%s'%(self.ID, name)
-        time = now()
+        if time is None:
+            time = now()
         self.append(name, StateMonitor.START, time)
 
-    def stop(self, name):
+    def stop(self, name, time=None):
         name = '%s.%s'%(self.ID, name)
-        time = now()
+        if time is None:
+            time = now()
         self.append(name, StateMonitor.STOP, time)
 
     def observe(self, name, attr):
@@ -275,6 +275,8 @@ def test():
     sn0Mon = Profiler.getMonitor('zone0/sn0')
     txn0Mon = Profiler.getMonitor('zone0/sn0/tr-txn0')
     txn1Mon = Profiler.getMonitor('zone0/sn0/tr-txn1')
+    sn0Mon.start('sn0')
+    sn0Mon.stop('sn0')
     txn0Mon.start('exec.txn0')
     txn0Mon.stop('exec.txn0')
     txn1Mon.start('exec.txn1')

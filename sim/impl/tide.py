@@ -1,16 +1,13 @@
 import logging
 import random
 
-from SimPy.Simulation import now, activate, stopSimulation
+from SimPy.Simulation import now
 from SimPy.Simulation import waitevent, hold
-from SimPy.Simulation import Process, SimEvent
 
-import sim
 from sim.core import Alarm, IDable, Thread
-from sim.rti import MsgXeiver
-from sim.system import BaseSystem, ClientNode, StorageNode
-
 from sim.impl.cendet import CDSNode
+from sim.rti import MsgXeiver
+from sim.system import BaseSystem, ClientNode
 
 class DeterministicReplicationSystem(BaseSystem):
     """Deterministic replication system."""
@@ -73,7 +70,7 @@ class DRCNode(ClientNode):
                 Proposer(self).propose(eid, list(batch))
                 if len(batch) > 0:
                     self.logger.debug(
-                        '%s proposed batch %s.%s %s at %s' 
+                        '%s proposed batch %s.%s %s at %s'
                         %(self, self, eid,
                           '[%s]'%(', '.join([txn.ID for txn in batch])),
                           now()))
@@ -83,7 +80,7 @@ class DRCNode(ClientNode):
                 self._close()
 
 class Proposer(MsgXeiver):
-    """Proposer of epochID.cnodeID. 
+    """Proposer of epochID.cnodeID.
     Send a epochID.cnodeID batch to all acceptors.
     """
     def __init__(self, cnode):
@@ -141,7 +138,7 @@ class Acceptor(IDable, Thread, MsgXeiver):
                                         now()))
                 if (eid, cnodeID) not in self.accepted:
                     self.accepted[(eid, cnodeID)] = batch
-                #tell all learners 
+                #tell all learners
                 for learner in self.cnode.sysLearners:
                     self.sendMsg(learner, 'learn',
                                  (eid, self.cnode.ID, (cnodeID, batch)))

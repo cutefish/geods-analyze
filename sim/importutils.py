@@ -41,7 +41,7 @@ def loadClass(name, path=[], interface=None):
     Search for a class.
 
     @name is the name of the class, with the same convention as @loadModule()
-    @interface is the interface class type for @return 
+    @interface is the interface class type for @return
 
     @return the class object or None if error
     """

@@ -2,7 +2,6 @@ import logging
 
 from SimPy.Simulation import hold, now
 
-import sim
 from sim.locking import Lockable, LockThread
 from sim.perf import Profiler
 from sim.rand import RandInterval
@@ -25,7 +24,7 @@ class CentralDyLockSystem(BaseSystem):
         self.logger.info('lock.block.prob=%s'%(float(bcount) / numLockAcquire))
         self.logger.info('lock.block.time.mean=%s'%bmean)
         self.logger.info('lock.block.time.std=%s'%bstd)
-        self.logger.info('lock.block.time.histo=(%s, %s)'%(bhisto))
+        #self.logger.info('lock.block.time.histo=(%s, %s)'%(bhisto))
         numExecTxns = rootMon.getElapsedCount(
             '.*%s'%BaseSystem.TXN_EXEC_KEY_PREFIX)
         dmean, dstd, dhisto, dcount = \
@@ -33,22 +32,22 @@ class CentralDyLockSystem(BaseSystem):
         self.logger.info('abort.deadlock.prob=%s'%(float(dcount) / numExecTxns))
         self.logger.info('abort.deadlock.time.mean=%s'%dmean)
         self.logger.info('abort.deadlock.time.std=%s'%dstd)
-        self.logger.info('abort.deadlock.time.histo=(%s, %s)'%(dhisto))
+        #self.logger.info('abort.deadlock.time.histo=(%s, %s)'%(dhisto))
         cmean, cstd, chisto, ccount = \
                 rootMon.getObservedStats('.*deadlock.cycle.length')
         self.logger.info('deadlock.cycle.length.mean=%s'%cmean)
         self.logger.info('deadlock.cycle.length.std=%s'%cstd)
-        self.logger.info('deadlock.cycle.length.histo=(%s, %s)'%(chisto))
+        #self.logger.info('deadlock.cycle.length.histo=(%s, %s)'%(chisto))
         hmean, hstd, hhisto, hcount = \
                 rootMon.getObservedStats('.*%s'%LockThread.LOCK_BLOCK_HEIGHT_KEY)
         self.logger.info('block.height.mean=%s'%hmean)
         self.logger.info('block.height.std=%s'%hstd)
-        self.logger.info('block.height.histo=(%s, %s)'%(hhisto))
+        #self.logger.info('block.height.histo=(%s, %s)'%(hhisto))
         wmean, wstd, whisto, wcount = \
                 rootMon.getObservedStats('.*%s'%LockThread.LOCK_BLOCK_WIDTH_KEY)
         self.logger.info('block.width.mean=%s'%wmean)
         self.logger.info('block.width.std=%s'%wstd)
-        self.logger.info('block.width.histo=(%s, %s)'%(whisto))
+        #self.logger.info('block.width.histo=(%s, %s)'%(whisto))
 
 class DLSNode(StorageNode):
     def newTxnRunner(self, txn):
