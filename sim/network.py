@@ -1,6 +1,6 @@
 from SimPy.Simulation import hold
 
-from sim.rand import RandInterval
+from rintvl import RandInterval
 
 class IIDLatencyNetwork(object):
     """A network with iid latency distribution.

@@ -2,8 +2,8 @@ import random
 
 import numpy as np
 
+from rintvl import RandInterval
 from sim.data import ItemID
-from sim.rand import RandInterval
 from sim.txns import Action, Transaction
 
 class UniformTxnGen(object):

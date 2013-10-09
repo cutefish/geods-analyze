@@ -5,7 +5,6 @@ import numpy as np
 from scipy.misc import comb
 
 from ddist import DDist
-from randgen import RVGen
 
 def maxn(n, ddist):
     cmf = []
@@ -60,7 +59,7 @@ def _paddingPmf(ddist, lb, tb):
     pmf.extend(ddist.pmfy)
     #[ddist.tb, tb)
     tnh = int((ddist.th + 0.5 * ddist.h) / ddist.h)
-    end = min(len(ddist.tpmfy), 
+    end = min(len(ddist.tpmfy),
               int((tb - ddist.tb + 0.5 * ddist.th) / ddist.th))
     for i in range(end):
         pmf.append(ddist.tpmfy[i])
@@ -341,7 +340,7 @@ def getFPLatencyDist(n, ddist, lambd):
     return oodelay(
         cRtrip, {'arrival.process' : 'poisson', 'poisson.lambda' : lambd}), \
             (rtrip.mean, rtrip.std, cRtrip.mean, cRtrip.std)
-    
+
 def getEBLatencyDist(n, ddist, sync, elen):
     f = int(np.ceil(n / 2.0) - 1)
     rtrip = quorum(n, f, ddist)
@@ -353,10 +352,10 @@ def getEBLatencyDist(n, ddist, sync, elen):
     ewait = DDist(lb, pmf, h=ddist.h)
     return ewait + oodelay(
         elatency, {'arrival.process' : 'fixed', 'fixed.interval' : elen}), \
-            (rtrip.mean, rtrip.std, syncRtrip.mean, syncRtrip.std, 
+            (rtrip.mean, rtrip.std, syncRtrip.mean, syncRtrip.std,
              elatency.mean, elatency.std)
 
-#####  TEST  ##### 
+#####  TEST  #####
 
 def testMaxn():
     print '===== test maxn ====='
@@ -412,9 +411,9 @@ def testCond():
     print '\n>>> normal\n'
     p = 0.8
     mu1 = 10
-    sigma1 = 3 
+    sigma1 = 3
     mu2 = 20
-    sigma2 = 1 
+    sigma2 = 1
     x1 = []
     x2 = []
     y = []
@@ -613,7 +612,7 @@ def testoodelay():
             rr = np.random.random()
             return tb + rr * (ub - tb)
 
-    intvlkeys = {'fixed' : genfixedintvl, 
+    intvlkeys = {'fixed' : genfixedintvl,
                  'poisson' : genexpointvl}
     intvlopts = {'fixed' : 'fixed.interval',
                  'poisson' : 'poisson.lambda'}

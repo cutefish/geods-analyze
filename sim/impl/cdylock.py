@@ -4,7 +4,7 @@ from SimPy.Simulation import hold, now
 
 from sim.locking import Lockable, LockThread
 from sim.perf import Profiler
-from sim.rand import RandInterval
+from rintvl import RandInterval
 from sim.system import BaseSystem, StorageNode
 from sim.txns import TxnRunner
 

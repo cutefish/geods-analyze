@@ -6,7 +6,7 @@ import numpy as np
 #    matplotlib.use('pdf')
 import matplotlib.pylab as plt
 
-from randgen import RVGen
+from rintvl import RandInterval
 
 class DDist(object):
     def __init__(self, lb, pmfy, h=0.1, tpmfy=[], th=0.5):
@@ -194,7 +194,9 @@ class DDist(object):
 
     @classmethod
     def sample(cls, config, h=0.1, tail=('p', 0), tnh=1, num=100000):
-        x = RVGen.run(config, num)
+        key = config['key']
+        mean = config.get('mean', 0)
+        x = RandInterval.generate(key, mean, config, num)
         return cls.create(x, h, tail, tnh)
 
     @classmethod
@@ -252,12 +254,13 @@ class DDist(object):
                 tpmf[k] += spmf[i]
             return DDist(lb, pmf, h, tpmf, th)
 
-#####  TEST  ##### 
+#####  TEST  #####
 def testAdd():
     print '===== test add ====='
     #two step
     print '\n>>>two step dist\n'
-    ddist0 = DDist.sample({'rv.name':'twostep','p':0.4, 'inf':-5, 'sup':10}, h=1)
+    ddist0 = DDist.sample(
+        {'key':'ddist','values':[-5, 10], 'probs':[4, 6]}, h=1)
     print 'base', ddist0.getPmfxy()
     ddist1 = ddist0 + ddist0
     print 'add', ddist1.getPmfxy()
@@ -315,8 +318,10 @@ def testAdd():
     ddist4 = DDist.create(x, h=0.1, tail=('p', 0.1), tnh=5)
     ddist4.plot('/tmp/test_normal_tail.pdf')
     ddist5 = ddist4 + ddist4
+    ddist6 = DDist.create(y, h=0.1, tail=('p', 0.1), tnh=5)
     print 'base tail', ddist4.mean, ddist4.std
-    print 'add tail', ddist5.mean, ddist5.std
+    print 'add tail model', ddist5.mean, ddist5.std
+    print 'add tail sim', ddist6.mean, ddist6.std
     #pareto
     print '\n>>>pareto dist\n'
     a = 1.3

@@ -3,9 +3,9 @@ import logging
 from SimPy.Simulation import now
 from SimPy.Simulation import hold, waitevent
 
+from rintvl import RandInterval
 from sim.core import IDable, BThread, TimeoutException
 from sim.locking import LockThread
-from sim.rand import RandInterval
 
 class Action(object):
     READ, WRITE = ('r', 'w')

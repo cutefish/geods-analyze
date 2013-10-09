@@ -8,11 +8,11 @@ from SimPy.Simulation import Resource, SimEvent
 from SimPy.Simulation import now, initialize, simulate
 from SimPy.Simulation import waitevent, hold, request, release
 
+from rintvl import RandInterval
 from sim.core import Alarm, IDable, Thread, infinite
 from sim.data import Dataset
 from sim.paxos import initPaxosCluster
 from sim.perf import Profiler
-from sim.rand import RandInterval
 from sim.rti import RTI
 
 class BaseSystem(Thread):

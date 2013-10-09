@@ -4,7 +4,7 @@ from sim.core import Thread, infinite
 from sim.impl.cdylock import CentralDyLockSystem, DLTxnRunner
 from sim.paxos import initPaxosCluster
 from sim.perf import Profiler
-from sim.rand import RandInterval
+from rintvl import RandInterval
 from sim.rti import RTI
 from sim.txns import Action
 from sim.system import ClientNode, StorageNode
