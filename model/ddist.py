@@ -194,9 +194,8 @@ class DDist(object):
 
     @classmethod
     def sample(cls, config, h=0.1, tail=('p', 0), tnh=1, num=100000):
-        key = config['key']
-        mean = config.get('mean', 0)
-        x = RandInterval.generate(key, mean, config, num)
+        key, mean, cfg = config
+        x = RandInterval.generate(key, mean, cfg, num)
         return cls.create(x, h, tail, tnh)
 
     @classmethod
@@ -260,7 +259,7 @@ def testAdd():
     #two step
     print '\n>>>two step dist\n'
     ddist0 = DDist.sample(
-        {'key':'ddist','values':[-5, 10], 'probs':[4, 6]}, h=1)
+        ('ddist',-1, {'values':[-5, 10], 'probs':[4, 6]}), h=1)
     print 'base', ddist0.getPmfxy()
     ddist1 = ddist0 + ddist0
     print 'add', ddist1.getPmfxy()

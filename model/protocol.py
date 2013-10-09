@@ -322,8 +322,7 @@ def getSLPLatencyDist(n, ddist, lambd):
     rtrip = quorum(n, f, ddist)
     delay = oodelay(
         rtrip, {'arrival.process' : 'poisson', 'poisson.lambda' : lambd})
-    return cond(1.0 / n, delay, ddist + delay), \
-            (rtrip.mean, rtrip.std, delay.mean, delay.std)
+    return cond(1.0 / n, delay, ddist + delay), delay, rtrip
 
 def getFPLatencyDist(n, ddist, lambd):
     f = int(np.ceil(n / 3.0) - 1)

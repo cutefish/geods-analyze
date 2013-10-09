@@ -46,7 +46,7 @@ def compare(params):
             index[(m, k, n, s)]['dyn.ana'] = res
         else:
             index[(m, k, n, s)]['det.sim'] = rt
-            pt, h, w, res, beta = calcDetmnExec(n, m, k, s)
+            pt, nr, h, w, res, beta = calcDetmnExec(n, m, k, s)
             index[(m, k, n, s)]['det.ana'] = res
     x = []
     dyn_sim = []
@@ -100,7 +100,7 @@ def approx(params):
     ndetData = {}
     detData = {}
     ndetKeys = ['pc', 'pd', 'w', 'res', 'load']
-    detKeys = ['pt', 'h', 'w', 'res', 'load']
+    detKeys = ['pt', 'h', 'nr', 'w', 'res', 'load']
     for k in ndetKeys:
         ndetData[k] = DataPoints()
     for k in detKeys:
@@ -124,7 +124,7 @@ def approx(params):
                 findIndex(k, kindex) * kshift + \
                 findIndex(m, mindex) * mshift + \
                 findIndex(n, nindex) * nshift
-        if config['system.impl'] == 'impl.cdylock.CentralDyLockSystem':
+        if config['system.impl'] == 'sim.impl.cdylock.CentralDyLockSystem':
             #model
             pcM, pdM, wM, resM, beta = calcNDetmnExec(n, m, k, s, c)
             #real
@@ -148,20 +148,24 @@ def approx(params):
             #ndetData['h'].x.append(pcM)
             #ndetData['h'].y.append((h1 + ph2 * h2 + ph3 * h3) / wR)
         elif config['system.impl'] == \
-                'impl.cdetmn.CentralDetmnSystem':
+                'sim.impl.cdetmn.CentralDetmnSystem':
+            #m = result['load.mean']
             #model
-            ptM, hM, wM, resM, beta = calcDetmnExec(n, m, k, s)
+            ptM, nrM, hM, wM, resM, beta = calcDetmnExec(n, m, k, s)
             #real
             ptR = result['lock.block.prob']
-            hR = result['block.height.mean']
+            hR = result['block.height.cond.mean']
+            loadR = result.get('load.mean', m)
+            nrR = m - result['num.blocking.txns.mean']
             wR = result['lock.block.time.mean']
             resR = result['res.mean']
-            loadR = result.get('load.mean', m)
             #data
             detData['pt'].x.append(beta)
             detData['pt'].y.append(ptR / ptM)
             detData['h'].x.append(beta)
             detData['h'].y.append(hR / hM)
+            detData['nr'].x.append(beta)
+            detData['nr'].y.append(nrR / nrM)
             detData['w'].x.append(beta)
             detData['w'].y.append(wR / wM)
             detData['res'].x.append(beta)

@@ -58,7 +58,7 @@ def compare(params):
     sindex = [10, 20, 30]
     for i, param in enumerate(params):
         config, result = param
-        if config['system.impl'] != 'impl.cdylock.CentralDyLockSystem':
+        if config['system.impl'] != 'sim.impl.cdylock.CentralDyLockSystem':
             continue
         m = config['max.num.txns.in.system']
         k = config['nwrites']
@@ -114,7 +114,7 @@ def approx(params):
                 findIndex(k, kindex) * kshift + \
                 findIndex(m, mindex) * mshift + \
                 findIndex(n, nindex) * nshift
-        if config['system.impl'] == 'impl.cdylock.CentralDyLockSystem':
+        if config['system.impl'] == 'sim.impl.cdylock.CentralDyLockSystem':
             #model
             pcM, pdM, wM, resM, beta = calcNDetmnExec(n, m, k, s, c)
             #real
