@@ -1,5 +1,4 @@
 from sim.core import IDable
-import sim
 from sim.locking import Lockable
 
 class ItemID(IDable):

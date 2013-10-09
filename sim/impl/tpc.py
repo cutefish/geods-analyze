@@ -1,10 +1,8 @@
 import logging
-import random
 
 from SimPy.Simulation import now
-from SimPy.Simulation import waitevent, hold
+from SimPy.Simulation import hold
 
-import sim
 from sim.core import BThread, IDable, infinite
 from sim.locking import Lockable, LockThread
 from sim.rand import RandInterval
@@ -102,7 +100,7 @@ class TPCTxnRunner(TxnRunner, MsgXeiver):
                     if result == TPCProtocol.FAILED:
                         #the only reason it fails should be deadlock
                         self.logger.debug(
-                            '%s acquire read lock %s from %s "failed" at %s' 
+                            '%s acquire read lock %s from %s "failed" at %s'
                             %(self.ID, itemID, proxy.ID, now()))
                         raise e
                     elif result == TPCProtocol.SUCCEEDED:
@@ -113,7 +111,7 @@ class TPCTxnRunner(TxnRunner, MsgXeiver):
                                          %result)
                 if succeeded:
                     self.logger.debug(
-                        '%s acquire read lock %s from %s "succeeded" at %s' 
+                        '%s acquire read lock %s from %s "succeeded" at %s'
                         %(self.ID, itemID, proxy.ID, now()))
                     self.endWait(proxy.conn)
                     self.acquired(proxy.conn)
@@ -152,7 +150,7 @@ class TPCTxnRunner(TxnRunner, MsgXeiver):
                 if result == TPCProtocol.FAILED:
                     #the only reason it fails should be deadlock
                     self.logger.debug(
-                        '%s try commit from %s "failed" at %s' 
+                        '%s try commit from %s "failed" at %s'
                         %(self.ID, proxy.ID, now()))
                     raise attr
                 elif result == TPCProtocol.SUCCEEDED:
@@ -244,7 +242,7 @@ class TPLProxy(LockThread, MsgXeiver):
         for content in self.popContents('msg'):
             attemptNo, label, attr = content
             self.logger.debug(
-                '%s received message attemptNo=%s, label=%s at %s' 
+                '%s received message attemptNo=%s, label=%s at %s'
                 %(self.ID, attemptNo, TPCProtocol.STATES_STR[label], now()))
             if latestNo <= (attemptNo, label):
                 latestNo = (attemptNo, label)
@@ -324,7 +322,7 @@ class TPLProxy(LockThread, MsgXeiver):
         except BThread.DeadlockException as e:
             self.sendMsg(self.runner, 'msg',
                          (self, attemptNo, label, TPCProtocol.FAILED, e))
-            self.logger.debug('%s try commit failed by deadlock %s at %s' 
+            self.logger.debug('%s try commit failed by deadlock %s at %s'
                               %(self.ID, e, now()))
             #we know it will abort
             for step in self.abort(content):
@@ -336,7 +334,7 @@ class TPLProxy(LockThread, MsgXeiver):
             for step in self.unlock(item):
                 yield step
         self.progress = (attemptNo, TPCProtocol.ABORTED)
-        self.logger.debug('%s aborted with attemptNo %s at %s' 
+        self.logger.debug('%s aborted with attemptNo %s at %s'
                           %(self.ID, attemptNo, now()))
 
     def commit(self, content):
@@ -352,7 +350,7 @@ class TPLProxy(LockThread, MsgXeiver):
         for itemID, value in self.writeset.iteritems():
             dataset[itemID].write(value, ts)
         self.progress = (attemptNo, TPCProtocol.COMMITTED)
-        self.logger.debug('%s committed with attemptNo %s at %s' 
+        self.logger.debug('%s committed with attemptNo %s at %s'
                           %(self.ID, attemptNo, now()))
         self.close()
 

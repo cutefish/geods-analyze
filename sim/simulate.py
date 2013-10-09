@@ -1,16 +1,13 @@
-import os
 import logging.config
 import sys
 import time
 
-import pdb;
+#import pdb;
 
-from SimPy.Simulation import initialize, activate, simulate, now
+from SimPy.Simulation import initialize, simulate, now
 
-import sim
 from sim.configure import Configuration
 from sim.parse import CustomArgsParser
-from sim.perf import Profiler
 from sim.importutils import loadClass
 from sim.rti import RTI
 from sim.verify import Verifier

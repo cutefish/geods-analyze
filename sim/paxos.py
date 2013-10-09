@@ -1,13 +1,12 @@
 import logging
 import math
-import pdb
+#import pdb
 
-from SimPy.Simulation import Process, SimEvent
-from SimPy.Simulation import initialize, activate, simulate, now
+from SimPy.Simulation import SimEvent
+from SimPy.Simulation import initialize, simulate, now
 from SimPy.Simulation import waitevent, hold
 
-import sim
-from sim.core import Alarm, IDable, RetVal, Thread, TimeoutException, infinite
+from sim.core import Alarm, IDable, Thread, TimeoutException, infinite
 from sim.perf import Profiler
 from sim.rti import RTI, MsgXeiver
 
@@ -218,6 +217,7 @@ class Acceptor(IDable, Thread, MsgXeiver):
         self.rndstep = rndstep
         self.coordinatedRecovery = coordinatedRecovery
         self.closed = False
+        self.monitor = Profiler.getMonitor(self.ID)
         self.logger = logging.getLogger(self.__class__.__name__)
 
     def init(self, acceptors, learners, coordinator):
@@ -388,6 +388,7 @@ class Acceptor(IDable, Thread, MsgXeiver):
                                       %(self.ID, iid, rnd,
                                         PaxosRoundType.TYPES[rtype],
                                         chosen, acc, quorum, now()))
+                    self.monitor.observe('collision', 1)
                 else:
                     self.logger.debug('%s resolve collision not needed:'
                                       'iid=%s, rnd=%s, type=%s, '
@@ -395,6 +396,7 @@ class Acceptor(IDable, Thread, MsgXeiver):
                                       %(self.ID, iid, rnd,
                                         PaxosRoundType.TYPES[rtype],
                                         chosen, acc, quorum, now()))
+                    self.monitor.observe('no_collision', 1)
                     chosen = q.outstanding
                     assert chosen != None, 'quorum: %s'%q
                 #send the chosen value
@@ -486,6 +488,7 @@ class Coordinator(IDable, Thread, MsgXeiver):
         self.chosenValues = {}      #to make sure always choose the same value
         self.rndstep = rndstep
         self.closed = False
+        self.monitor = Profiler.getMonitor(self.ID)
         self.logger = logging.getLogger(self.__class__.__name__)
 
     def init(self, acceptors, learner):
@@ -516,7 +519,7 @@ class Coordinator(IDable, Thread, MsgXeiver):
                 self.cleanup()
                 for step in self.waitMsg(['1b', '2b'], self.timeout):
                     yield step
-            except TimeoutException as e:
+            except TimeoutException:
                 #if nothing happens for a while, check if we need to start a
                 #new round to make sure progress
                 self._startNewRounds()
@@ -535,7 +538,7 @@ class Coordinator(IDable, Thread, MsgXeiver):
                 self.iquorums[iid] = VPickQuorum(
                     self.fqsize, self.qsize, self.fqsize, self.total)
             quorum = self.iquorums[iid]
-            quorum.add(acc, rund, rtype, value)
+            quorum.add(acc, rnd, rtype, value)
             if crnd % self.rndstep != 0:
                 #other proposers are in progress, don't bother.
                 continue
@@ -578,7 +581,9 @@ class Coordinator(IDable, Thread, MsgXeiver):
                 if quorum.state == VPickQuorum.COL_NONE:
                     #collision and none outstanding needs special treatment
                     self._recoverCollision(iid, quorum)
+                    self.monitor.observe('collision', 1)
                 else:
+                    self.monitor.observe('no_collision', 1)
                     #some value is outstanding
                     assert quorum.state != VPickQuorum.NONE, \
                             'quorum: %s'%quorum
@@ -606,7 +611,7 @@ class Coordinator(IDable, Thread, MsgXeiver):
                 del self.iquorums[iid]
             else:
                 #start another fast round for this instance
-                rnd = (quorum.maxRnd / rndstep  + 1) * rndstep
+                rnd = (quorum.maxRnd / self.rndstep  + 1) * self.rndstep
                 for acc in self.acceptors:
                     self.sendMsg(acc, '1a', (self, iid, rnd))
 
@@ -694,7 +699,7 @@ class Proposer(IDable, Thread, MsgXeiver):
                                    self.crnd + self.rndstep, now()))
                 self.crnd += self.rndstep
                 if self.noPhase1:
-                    pvalue = value
+                    pvalue = self.value
                 else:
                     pvalue = None
             except TimeoutException:
@@ -801,6 +806,7 @@ class Proposer(IDable, Thread, MsgXeiver):
             self.sendMsg(acc, 'propose', (self, self.instanceID, self.value))
 
     def run(self):
+        self.stime = now()
         if self.isFast:
             for step in self.fastPropose():
                 yield step
@@ -811,6 +817,7 @@ class Proposer(IDable, Thread, MsgXeiver):
             self.isSuccess = True
         self.prunner.finishedProposers.append(self)
         self.prunner.newFinishEvent.signal()
+        self.etime = now()
 
 class PaxosResponse(object):
     def __init__(self):
@@ -837,6 +844,7 @@ class ProposerRunner(IDable, Thread, MsgXeiver):
         self.newRequestEvent = SimEvent()
         self.newFinishEvent = SimEvent()
         self.requests = []
+        self.activeValues = {}          #{value: ntries}
         self.finishedProposers = []
         self.responses = {}
         self.iidstep = iidstep
@@ -873,11 +881,17 @@ class ProposerRunner(IDable, Thread, MsgXeiver):
                                     instanceID, value,
                                     self.timeout,
                                     self.isFast, self.noPhase1)
+                self.monitor.start('propose_value_%s'%value)
                 proposer.start()
             while len(self.finishedProposers) > 0:
                 prev = self.finishedProposers.pop(0)
                 if not prev.isSuccess:
+                    self.monitor.start('%s_pfail'%prev, prev.stime)
+                    self.monitor.stop('%s_pfail'%prev, prev.etime)
                     value = prev.value
+                    if value not in self.activeValues:
+                        self.activeValues[value] = 0
+                    self.activeValues[value] += 1
                     instanceID = self.getNextInstanceID()
                     proposer = Proposer(self, self.rnd0, self.rndstep,
                                         self.acceptors, self.learner,
@@ -886,6 +900,13 @@ class ProposerRunner(IDable, Thread, MsgXeiver):
                                         self.isFast, self.noPhase1)
                     proposer.start()
                 else:
+                    self.monitor.start('%s_psucc'%prev, prev.stime)
+                    self.monitor.stop('%s_psucc'%prev, prev.etime)
+                    value = prev.value
+                    ntries = self.activeValues.get(value, 0)
+                    self.monitor.observe('ntries_propose_%s'%value, ntries)
+                    self.activeValues.pop(value, None)
+                    self.monitor.stop('propose_value_%s'%value)
                     #success, notify the event and the instance
                     response = self.responses[prev.value]
                     response.instanceID = prev.instanceID
@@ -893,8 +914,8 @@ class ProposerRunner(IDable, Thread, MsgXeiver):
                     del self.responses[prev.value]
             yield waitevent, self, (self.newRequestEvent, self.newFinishEvent)
 
-def initPaxosCluster(pnodes, anodes, coordinatedRecovery, 
-                     isFast, propPlacement, noPhase1, 
+def initPaxosCluster(pnodes, anodes, coordinatedRecovery,
+                     isFast, propPlacement, noPhase1,
                      interleavedIID, timeout):
     #on each anode, there is an acceptor
     acceptors = []
@@ -938,7 +959,7 @@ def initPaxosCluster(pnodes, anodes, coordinatedRecovery,
             else:
                 prunner = ProposerRunner(pnode, i + 1, len(pnodes),
                                          acceptors, learners[i],
-                                         timeout, isFast, noPhase1, 
+                                         timeout, isFast, noPhase1,
                                          i, len(pnodes))
             prunners.append(prunner)
             pnode.paxosPRunner = prunner
@@ -952,12 +973,12 @@ import random
 
 class ANode(object):
     def __init__(self, i):
-        self.inetAddr = 'anode'
+        self.inetAddr = 'anode/%s'%i
         self.ID = 'anode%s'%i
 
 class PNode(object):
     def __init__(self, i):
-        self.inetAddr = 'pnode'
+        self.inetAddr = 'pnode/%s'%i
         self.ID = 'pnode%s'%i
 
 class TestRunner(Thread):
@@ -987,8 +1008,8 @@ class TestRunner(Thread):
 NUM_PNODES = 5
 NUM_ANODES = 7
 NETWORK_CONFIG = {
-    'nw.latency.within.zone' : ('uniform', -1, {'lb':10, 'ub':500}),
-    'nw.latency.cross.zone' : ('uniform', -1, {'lb':10, 'ub':1000}),
+    'nw.latency.within.zone' : ('uniform', -1, {'lb':500, 'ub':1500}),
+    'nw.latency.cross.zone' : ('uniform', -1, {'lb':500, 'ub':1500}),
 }
 THRESHOLD = 0.5
 INTERVAL = 500
@@ -1021,8 +1042,43 @@ def verifyResult(learners):
                  %(learner0.ID, key, val, lnr.instances[key], lnr.ID, key))
     logging.info('=====  VERIFICATION PASSED =====')
 
+def profile():
+    rootMon = Profiler.getMonitor('/')
+    totalTime = rootMon.getElapsedStats('.*propose_value')
+    mean, std, histo, count = totalTime
+    logging.info('total.time.mean=%s'%mean)
+    logging.info('total.time.std=%s'%std)
+    logging.info('total.time.histo=(%s, %s)'%histo)
+    logging.info('total.time.count=%s'%count)
+    succTime = rootMon.getElapsedStats('.*_psucc')
+    mean, std, histo, count = succTime
+    logging.info('succ.time.mean=%s'%mean)
+    logging.info('succ.time.std=%s'%std)
+    logging.info('succ.time.histo=(%s, %s)'%histo)
+    logging.info('succ.time.count=%s'%count)
+    failTime = rootMon.getElapsedStats('.*_pfail')
+    mean, std, histo, count = failTime
+    logging.info('fail.time.mean=%s'%mean)
+    logging.info('fail.time.std=%s'%std)
+    logging.info('fail.time.histo=(%s, %s)'%histo)
+    logging.info('fail.time.count=%s'%count)
+    ntries = rootMon.getObservedStats('.*ntries')
+    mean, std, histo, count = ntries
+    logging.info('ntries.time.mean=%s'%mean)
+    logging.info('ntries.time.std=%s'%std)
+    logging.info('ntries.time.histo=(%s, %s)'%histo)
+    logging.info('ntries.time.count=%s'%count)
+    numCol = rootMon.getObservedCount('.*collision')
+    numNCol = rootMon.getObservedCount('.*no_collision')
+    logging.info('num.collision=%s'%numCol)
+    logging.info('num.no.collision=%s'%numNCol)
+    if numCol + numNCol != 0:
+        logging.info('collision.ratio=%s'%(float(numCol) / (numCol + numNCol)))
+
+
 def testClassicPaxos():
-    logging.info('===== START TEST CLASSIC PAXOS =====')
+    logging.info('\n\n===== START TEST CLASSIC PAXOS =====\n')
+    Profiler.clear()
     pnodes, anodes, values = initTest()
     initPaxosCluster(pnodes, anodes, False, False, 'all', False, False, 1500)
     prunners = []
@@ -1037,10 +1093,12 @@ def testClassicPaxos():
     testrunner.start()
     simulate(until=10000000)
     verifyResult(learners)
-    logging.info('===== END TEST CLASSIC PAXOS =====')
+    profile()
+    logging.info('\n===== END TEST CLASSIC PAXOS =====\n\n')
 
 def testClassicPaxosInterleavedIID():
-    logging.info('===== START TEST CLASSIC PAXOS INTERLEAVEDIID =====')
+    logging.info('\n\n===== START TEST CLASSIC PAXOS INTERLEAVEDIID =====\n')
+    Profiler.clear()
     pnodes, anodes, values = initTest()
     initPaxosCluster(pnodes, anodes, False, False, 'all', False, True, 1500)
     prunners = []
@@ -1055,10 +1113,12 @@ def testClassicPaxosInterleavedIID():
     testrunner.start()
     simulate(until=10000000)
     verifyResult(learners)
-    logging.info('===== END TEST CLASSIC PAXOS INTERLEAVEDIID =====')
+    profile()
+    logging.info('\n===== END TEST CLASSIC PAXOS INTERLEAVEDIID =====\n\n')
 
 def testMultiplePaxos():
-    logging.info('===== START TEST MULTI PAXOS =====')
+    logging.info('\n\n===== START TEST MULTI PAXOS =====\n')
+    Profiler.clear()
     pnodes, anodes, values = initTest()
     initPaxosCluster(pnodes, anodes, False, False, 'one', True, False, 1500)
     prunners = []
@@ -1073,10 +1133,12 @@ def testMultiplePaxos():
     testrunner.start()
     simulate(until=10000000)
     verifyResult(learners)
-    logging.info('===== END TEST MULTI PAXOS =====')
+    profile()
+    logging.info('\n===== END TEST MULTI PAXOS =====\n\n')
 
 def testMultiplePaxosInterleavedIID():
-    logging.info('===== START TEST MULTIPLE PAXOS INTERLEAVEDIID =====')
+    logging.info('\n\n===== START TEST MULTIPLE PAXOS INTERLEAVEDIID =====\n')
+    Profiler.clear()
     pnodes, anodes, values = initTest()
     initPaxosCluster(pnodes, anodes, False, False, 'all', True, True, 1500)
     prunners = []
@@ -1091,10 +1153,12 @@ def testMultiplePaxosInterleavedIID():
     testrunner.start()
     simulate(until=10000000)
     verifyResult(learners)
-    logging.info('===== END TEST MULTIPLE PAXOS INTERLEAVEDIID =====')
+    profile()
+    logging.info('\n===== END TEST MULTIPLE PAXOS INTERLEAVEDIID =====\n\n')
 
 def testFastPaxosCoordinated():
-    logging.info('===== START TEST FAST PAXOS COORDINATED=====')
+    logging.info('\n\n===== START TEST FAST PAXOS COORDINATED=====\n')
+    Profiler.clear()
     pnodes, anodes, values = initTest()
     initPaxosCluster(pnodes, anodes, True, True, 'all', False, False, 1500)
     prunners = []
@@ -1109,10 +1173,12 @@ def testFastPaxosCoordinated():
     testrunner.start()
     simulate(until=10000000)
     verifyResult(learners)
-    logging.info('===== END TEST FAST PAXOS COORDINATED=====')
+    profile()
+    logging.info('\n===== END TEST FAST PAXOS COORDINATED=====\n\n')
 
 def testFastPaxosUncoordinated():
-    logging.info('===== START TEST FAST PAXOS UNCOORDINATED=====')
+    logging.info('\n\n===== START TEST FAST PAXOS UNCOORDINATED=====\n')
+    Profiler.clear()
     pnodes, anodes, values = initTest()
     initPaxosCluster(pnodes, anodes, False, True, 'all', False, False, 1500)
     prunners = []
@@ -1127,7 +1193,8 @@ def testFastPaxosUncoordinated():
     testrunner.start()
     simulate(until=10000000)
     verifyResult(learners)
-    logging.info('===== END TEST FAST PAXOS UNCOORDINATED=====')
+    profile()
+    logging.info('\n===== END TEST FAST PAXOS UNCOORDINATED=====\n\n')
 
 def test():
     logging.basicConfig(level=logging.DEBUG, filename='/tmp/geods-paxos-test')

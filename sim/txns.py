@@ -1,11 +1,8 @@
-import copy
 import logging
-import random
 
-from SimPy.Simulation import Process, now
+from SimPy.Simulation import now
 from SimPy.Simulation import hold, waitevent
 
-import sim
 from sim.core import IDable, BThread, TimeoutException
 from sim.locking import LockThread
 from sim.rand import RandInterval
@@ -37,7 +34,7 @@ class Transaction(IDable):
             self.gids.add(action.itemID.gid)
 
     def __repr__(self):
-        return ('%s{(%s) [%s] [%s]}' 
+        return ('%s{(%s) [%s] [%s]}'
                 %(self.ID, self.zoneID,
                   ', '.join([str(g) for g in self.gids]),
                   ', '.join([str(a) for a in self.actions])))
@@ -71,7 +68,7 @@ class TxnRunner(LockThread):
             self.monitor.stop('aborting')
         else:
             raise ValueError(
-                'Txn wrong status: %s before running' %STATESTR[self.state])
+                'Txn wrong status: %s before running' %TxnRunner.STATESTR[self.state])
         self.state = TxnRunner.RUNNING
         self.monitor.start('running')
 
@@ -95,7 +92,7 @@ class TxnRunner(LockThread):
             self.monitor.stop('committing')
         else:
             raise ValueError(
-                'Txn wrong status: %s before aborting' %STATESTR[self.state])
+                'Txn wrong status: %s before aborting' %TxnRunner.STATESTR[self.state])
         self.state = TxnRunner.ABORTING
         self.monitor.start('aborting')
 

@@ -1,13 +1,8 @@
-import logging
-import re
-
-from SimPy.Simulation import Process, SimEvent
-from SimPy.Simulation import initialize, activate, simulate, now
+from SimPy.Simulation import SimEvent
+from SimPy.Simulation import initialize, simulate, now
 from SimPy.Simulation import waitevent, hold
 
-import sim
 from sim.core import infinite, Alarm, RetVal, Thread, TimeoutException
-from sim.importutils import loadClass
 from sim.network import IIDLatencyNetwork
 
 class RTI(object):
@@ -15,11 +10,11 @@ class RTI(object):
 
     The RTI interface simulates a process send a message that calls a remote
     object's method that transits its state. This is a similar concept like MPI
-    and RPC but in a much more simplified way: 
+    and RPC but in a much more simplified way:
 
         (1) the interface invoke a remote object's method, the remote method
         changes the internal state but the transit does not have any simulated
-        cost on the remote object; 
+        cost on the remote object;
 
         (2) the network effect on this invocation is simulated as that the
         invocation of the remote object's method happens sometime in the future
@@ -37,7 +32,7 @@ class RTI(object):
 
     To send an invocation request and returns immediately, use:
         self.invoke(remoteObject.function, args).rtiCall(**kargs)
-    
+
     To waits for the return of the invocation use:
         for step in self.invoke(remoteObject.function, args).rtiWait(**kargs):
             yield step
@@ -53,11 +48,11 @@ class RTI(object):
 
     class AnonymousThread(Thread):
         """
-        
+
         Because we want to change the state of the object in a future time
         which depends on the src and dst system and network, we create an
         anonymous thread to handle the events such as buffering or network
-        routing. 
+        routing.
 
         """
         def __init__(self, parent, remoteMethod, *args):
@@ -272,7 +267,7 @@ class Server(Thread, MsgXeiver):
         MsgXeiver.__init__(self, addr, maxntags=5)
 
     def add(self, x, y):
-        print ('server %s computing %s + %s at %s' 
+        print ('server %s computing %s + %s at %s'
                %(self.inetAddr, x, y, now()))
         return x + y
 
@@ -297,33 +292,33 @@ class Client(Thread, MsgXeiver):
     def run(self):
         #rti test
         for server in self.servers:
-            print ('client %s call %s at %s' 
+            print ('client %s call %s at %s'
                    %(self.inetAddr, server.inetAddr, now()))
             self.invoke(server.add, 2, 3).rtiCall()
             yield hold, self, 10
-            print ('client %s wait %s at %s' 
+            print ('client %s wait %s at %s'
                    %(self.inetAddr, server.inetAddr, now()))
             try:
                 for step in self.invoke(server.add, 2, 3).rtiWait(timeout=50):
                     yield step
-                print ('client %s get result %s from %s at %s' 
+                print ('client %s get result %s from %s at %s'
                        %(self.inetAddr, self.rtiRVal.get(),
                          server.inetAddr, now()))
-            except TimeoutException as e:
+            except TimeoutException:
                 print ('client %s timeout from %s at %s'
                        %(self.inetAddr, server.inetAddr, now()))
         #msgxeiver test
         for i in range(3):
             for server in self.servers:
                 self.sendMsg(server, 'request', (2, 3))
-                print ('client %s send request to %s at %s' 
+                print ('client %s send request to %s at %s'
                        %(self.inetAddr, server.inetAddr, now()))
                 yield hold, self, 5
         #test msg buf tag lru
         for i in range(10):
             for server in self.servers:
                 self.sendMsg(server, i, 'request')
-                print ('client %s send tag %s to %s at %s' 
+                print ('client %s send tag %s to %s at %s'
                        %(self.inetAddr, i, server.inetAddr, now()))
                 yield hold, self, 5
 

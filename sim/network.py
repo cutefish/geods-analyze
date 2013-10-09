@@ -1,7 +1,5 @@
 from SimPy.Simulation import hold
-from SimPy.Simulation import now
 
-import sim
 from sim.rand import RandInterval
 
 class IIDLatencyNetwork(object):

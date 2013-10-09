@@ -1,19 +1,13 @@
-import logging
-
-from SimPy.Simulation import now, activate, stopSimulation
 from SimPy.Simulation import waitevent, hold
-from SimPy.Simulation import Process, SimEvent
 
-import sim
 from sim.core import Thread, infinite
+from sim.impl.cdylock import CentralDyLockSystem, DLTxnRunner
+from sim.paxos import initPaxosCluster
 from sim.perf import Profiler
 from sim.rand import RandInterval
-from sim.rti import RTI, MsgXeiver
-from sim.txns import Action, TxnRunner
-from sim.system import BaseSystem, ClientNode, StorageNode
-
-from sim.paxos import initPaxosCluster
-from sim.impl.cdylock import CentralDyLockSystem, DLTxnRunner
+from sim.rti import RTI
+from sim.txns import Action
+from sim.system import ClientNode, StorageNode
 
 class MasterDyLockSystem(CentralDyLockSystem):
     """Deterministic replication system."""
@@ -25,7 +19,7 @@ class MasterDyLockSystem(CentralDyLockSystem):
 
     def startupPaxos(self):
         initPaxosCluster(
-            self.cnodes, self.cnodes, False, False, 'one', 
+            self.cnodes, self.cnodes, False, False, 'one',
             True, False, infinite)
 
     def profile(self):

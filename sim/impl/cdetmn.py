@@ -3,7 +3,6 @@ import logging
 from SimPy.Simulation import SimEvent
 from SimPy.Simulation import hold, waitevent, now
 
-import sim
 from sim.core import BThread
 from sim.locking import Lockable, LockThread
 from sim.perf import Profiler
@@ -14,7 +13,7 @@ from sim.txns import TxnRunner
 def StrictFCFSAlgo(lockable):
     # we use a simple algorithm:
     #   Wake up the first thread in queue. If it acquires a shared mode,
-    #   then wake up all the other shared threads in queue before a exclusive. 
+    #   then wake up all the other shared threads in queue before a exclusive.
     if len(lockable.blockQueue) == 0:
         return None, None
     threads = []
@@ -27,7 +26,7 @@ def StrictFCFSAlgo(lockable):
         for thread in lockable.blockQueue[1:]:
             s, e = lockable.blockedThreads[thread]
             if s == Lockable.SHARED:
-                lockable.logger.debug('Lockable %r wake up %s' 
+                lockable.logger.debug('Lockable %r wake up %s'
                                   %(lockable, thread.ID))
                 e.signal()
                 threads.append(thread)
@@ -53,38 +52,36 @@ class CentralDetmnSystem(BaseSystem):
                 rootMon.getElapsedStats('.*wait.lock')
         self.logger.info('wait.lock.time.mean=%s'%wmean)
         self.logger.info('wait.lock.time.std=%s'%wstd)
-        self.logger.info('wait.lock.time.histo=(%s, %s)'%whisto)
+        #self.logger.info('wait.lock.time.histo=(%s, %s)'%whisto)
         numLockAcquire = rootMon.getElapsedCount('.*lock.acquire')
         bmean, bstd, bhisto, bcount = \
                 rootMon.getElapsedStats('.*%s'%LockThread.LOCK_BLOCK_KEY)
         self.logger.info('lock.block.prob=%s'%(float(bcount) / numLockAcquire))
         self.logger.info('lock.block.time.mean=%s'%bmean)
         self.logger.info('lock.block.time.std=%s'%bstd)
-        self.logger.info('lock.block.time.histo=(%s, %s)'%(bhisto))
+        #self.logger.info('lock.block.time.histo=(%s, %s)'%(bhisto))
         nlmean, nlstd, nlhisto, nlcount = \
                 rootMon.getObservedStats('.*num.blocking.lock')
         self.logger.info('num.blocking.lock.mean=%s'%nlmean)
         self.logger.info('num.blocking.lock.std=%s'%nlstd)
-        self.logger.info('num.blocking.lock.histo=(%s, %s)'%(nlhisto))
+        #self.logger.info('num.blocking.lock.histo=(%s, %s)'%(nlhisto))
         nbmean, nbstd, nbhisto, nbcount = \
                 rootMon.getObservedStats('.*num.blocking.txns')
         self.logger.info('num.blocking.txns.mean=%s'%nbmean)
         self.logger.info('num.blocking.txns.std=%s'%nbstd)
-        self.logger.info('num.blocking.txns.histo=(%s, %s)'%(nbhisto))
+        #self.logger.info('num.blocking.txns.histo=(%s, %s)'%(nbhisto))
         hmean, hstd, hhisto, hcount = \
                 rootMon.getObservedStats('.*%s.cond'%LockThread.LOCK_BLOCK_HEIGHT_KEY)
         self.logger.info('block.height.cond.mean=%s'%hmean)
         self.logger.info('block.height.cond.std=%s'%hstd)
-        self.logger.info('block.height.cond.histo=(%s, %s)'%(hhisto))
+        #self.logger.info('block.height.cond.histo=(%s, %s)'%(hhisto))
         wmean, wstd, whisto, wcount = \
                 rootMon.getObservedStats('.*%s'%LockThread.LOCK_BLOCK_WIDTH_KEY)
         self.logger.info('block.width.mean=%s'%wmean)
         self.logger.info('block.width.std=%s'%wstd)
-        self.logger.info('block.width.histo=(%s, %s)'%(whisto))
+        #self.logger.info('block.width.histo=(%s, %s)'%(whisto))
         h = rootMon.getObservedMean('.*%s.abs'%LockThread.LOCK_BLOCK_HEIGHT_KEY)
         self.logger.info('block.height.mean.noncond=%s'%h)
-        dw = rootMon.getObservedMean('.*lock.block.direct.width')
-        self.logger.info('block.dwidth.mean=%s'%dw)
 
 class CDSNode(StorageNode):
     def __init__(self, cnode, index, configs):

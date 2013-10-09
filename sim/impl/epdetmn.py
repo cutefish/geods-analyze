@@ -1,17 +1,13 @@
-import logging
 import random
 
-from SimPy.Simulation import now, activate, stopSimulation
+from SimPy.Simulation import now
 from SimPy.Simulation import waitevent, hold
-from SimPy.Simulation import Process, SimEvent
 
-import sim
 from sim.core import Alarm, IDable, infinite
-from sim.perf import Profiler
-from sim.system import BaseSystem, ClientNode, StorageNode
-
+from sim.impl.cdetmn import CentralDetmnSystem, CDSNode
 from sim.paxos import initPaxosCluster
-from sim.impl.cdetmn import CentralDetmnSystem, CDSNode, DETxnRunner
+from sim.perf import Profiler
+from sim.system import ClientNode, StorageNode
 
 class EPaxosDetmnSystem(CentralDetmnSystem):
     """Deterministic system with master timestamp assignment."""
@@ -23,17 +19,47 @@ class EPaxosDetmnSystem(CentralDetmnSystem):
 
     def startupPaxos(self):
         initPaxosCluster(
-            self.cnodes, self.cnodes, False, False, 'all', 
+            self.cnodes, self.cnodes, False, False, 'all',
             True, True, infinite)
 
     def profile(self):
         CentralDetmnSystem.profile(self)
         rootMon = Profiler.getMonitor('/')
         pmean, pstd, phisto, pcount = \
-                rootMon.getElapsedStats('.*paxos.propose')
-        self.logger.info('paxos.propose.time.mean=%s'%pmean)
-        self.logger.info('paxos.propose.time.std=%s'%pstd)
-        self.logger.info('paxos.propose.time.histo=(%s, %s)'%(phisto))
+                rootMon.getElapsedStats('.*order.consensus')
+        self.logger.info('order.consensus.time.mean=%s'%pmean)
+        self.logger.info('order.consensus.time.std=%s'%pstd)
+        #self.logger.info('order.consensus.time.histo=(%s, %s)'%(phisto))
+        totalTime = rootMon.getElapsedStats('.*propose_value')
+        mean, std, histo, count = totalTime
+        self.logger.info('paxos.propose.total.time.mean=%s'%mean)
+        self.logger.info('paxos.propose.total.time.std=%s'%std)
+        #self.logger.info('paxos.propose.total.time.histo=(%s, %s)'%histo)
+        #self.logger.info('paxos.propose.total.time.count=%s'%count)
+        succTime = rootMon.getElapsedStats('.*_psucc')
+        mean, std, histo, count = succTime
+        self.logger.info('paxos.propose.succ.time.mean=%s'%mean)
+        self.logger.info('paxos.propose.succ.time.std=%s'%std)
+        #self.logger.info('paxos.propose.succ.time.histo=(%s, %s)'%histo)
+        #self.logger.info('paxos.propose.succ.time.count=%s'%count)
+        failTime = rootMon.getElapsedStats('.*_pfail')
+        mean, std, histo, count = failTime
+        self.logger.info('paxos.propose.fail.time.mean=%s'%mean)
+        self.logger.info('paxos.propose.fail.time.std=%s'%std)
+        #self.logger.info('paxos.propose.fail.time.histo=(%s, %s)'%histo)
+        #self.logger.info('paxos.propose.fail.time.count=%s'%count)
+        ntries = rootMon.getObservedStats('.*ntries')
+        mean, std, histo, count = ntries
+        self.logger.info('ntries.time.mean=%s'%mean)
+        self.logger.info('ntries.time.std=%s'%std)
+        #self.logger.info('ntries.time.histo=(%s, %s)'%histo)
+        #self.logger.info('ntries.time.count=%s'%count)
+        numCol = rootMon.getObservedCount('.*collision')
+        numNCol = rootMon.getObservedCount('.*no_collision')
+        self.logger.info('num.collision=%s'%numCol)
+        self.logger.info('num.no.collision=%s'%numNCol)
+        if numCol + numNCol != 0:
+            self.logger.info('collision.ratio=%s'%(float(numCol) / (numCol + numNCol)))
 
 class EPDCNode(ClientNode):
     pass
@@ -69,7 +95,7 @@ class EPDSNode(CDSNode):
             initTime += self.eLen
         yield hold, self, initTime
         periodEvent = Alarm.setPeriodic(self.eLen, name='epoch')
-        lastEpochTime = -1
+        lastEpochTime = now()
         count = 0
         lastBatch = False
         while True:
@@ -80,9 +106,9 @@ class EPDSNode(CDSNode):
                     txn = self.newTxns.pop()
                     batch.append(txn)
                 #propose the txn for instance
-                self.monitor.start('paxos.propose.%s'%batch)
+                self.monitor.start('order.consensus.%s'%batch)
                 self.cnode.paxosPRunner.addRequest(batch)
-                lastEpochTime = now()
+                lastEpochTime += self.eLen
                 count += 1
                 self.logger.debug('%s propose new batch %s at %s'
                                   %(self.ID, batch, now()))
@@ -95,7 +121,7 @@ class EPDSNode(CDSNode):
             while self.nextIID in instances:
                 readyBatch = instances[self.nextIID]
                 if self.ID in readyBatch.ID:
-                    self.monitor.stop('paxos.propose.%s'%readyBatch)
+                    self.monitor.stop('order.consensus.%s'%readyBatch)
                 if not readyBatch.isEmpty():
                     self.logger.debug('%s execute new batch %s at %s'
                                       %(self.ID, readyBatch, now()))

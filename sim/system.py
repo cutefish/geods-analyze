@@ -4,12 +4,10 @@ import sys
 import time
 from Queue import PriorityQueue
 
-import numpy as np
-from SimPy.Simulation import Process, Resource, SimEvent
-from SimPy.Simulation import activate, now, initialize, simulate
+from SimPy.Simulation import Resource, SimEvent
+from SimPy.Simulation import now, initialize, simulate
 from SimPy.Simulation import waitevent, hold, request, release
 
-import sim
 from sim.core import Alarm, IDable, Thread, infinite
 from sim.data import Dataset
 from sim.paxos import initPaxosCluster
@@ -203,7 +201,7 @@ class BaseSystem(Thread):
                     '.*%s'%BaseSystem.TXN_EXEC_KEY_PREFIX)
         self.logger.info('res.mean=%s'%resMean)
         self.logger.info('res.std=%s'%resStd)
-        self.logger.info('res.histo=(%s,%s)'%(resHisto))
+        #self.logger.info('res.histo=(%s,%s)'%(resHisto))
         loss = float(Profiler.getMonitor('system').getObservedCount(
             '.*%s'%BaseSystem.TXN_LOSS_KEY_PREFIX))
         lossRatio = loss / (resCount + loss)
@@ -212,13 +210,13 @@ class BaseSystem(Thread):
                 Profiler.getMonitor('/').getObservedStats('.*.num.txns')
         self.logger.info('load.mean=%s'%loadMean)
         self.logger.info('load.std=%s'%loadStd)
-        self.logger.info('load.histo=(%s,%s)'%(loadHisto))
+        #self.logger.info('load.histo=(%s,%s)'%(loadHisto))
 
     def printMonitor(self):
         self.logger.debug('monitor: %r' %(Profiler.getMonitor('system')))
 
 class ClientNode(IDable, Thread, RTI):
-    """Base client node.  
+    """Base client node.
 
     Base client node accepts txn requests and dispatch them to storage nodes.
     They are also hosts of paxos protocol entities.
@@ -354,9 +352,9 @@ class StorageNode(IDable, Thread, RTI):
                 self.snode = snode
                 self.txn = txn
                 self.logger = logging.getLogger(self.__class__.__name__)
-            
+
             def run(self):
-                self.logger.debug('Running transaction %s at %s' 
+                self.logger.debug('Running transaction %s at %s'
                                   %(txn.ID, now()))
                 yield hold, self, RandInterval.get('expo', 100).next()
         return DefaultTxnRunner(self, txn)
@@ -372,7 +370,7 @@ class StorageNode(IDable, Thread, RTI):
             self.snode.runningThreads.add(self)
             #wait for pool thread resource if necessary
             #self.snode.logger.debug(
-            #    '%s start txn=%s, running=%s, outstanding=%s' 
+            #    '%s start txn=%s, running=%s, outstanding=%s'
             #    %(self.snode, self.txn.ID,
             #      '(%s)'%(','.join([t.ID for t in self.snode.txnsRunning])),
             #      '(%s)'%(','.join([t.ID for t in self.snode.newTxns]))
@@ -395,7 +393,7 @@ class StorageNode(IDable, Thread, RTI):
             yield waitevent, self, thread.finish
             self.snode.monitor.stop(
                 '%s.%s'%(self.snode.M_TXN_RUN_PREFIX, self.txn.ID))
-            yield release, self, self.snode.pool  
+            yield release, self, self.snode.pool
             #clean up
             self.snode.txnsRunning.remove(self.txn)
             self.snode.runningThreads.remove(self)
@@ -430,7 +428,6 @@ class FakeTxn(IDable):
     def __init__(self, ID, zoneID, gid):
         IDable.__init__(self, 'txn%s'%ID)
         self.zoneID = zoneID
-        r = random.random()
         self.gids = set([gid])
 
     def __repr__(self):
@@ -486,12 +483,12 @@ def test():
     print erlangLoss(lambd / numZones, mu, numSNodes)
 
 def erlangLoss(lambd, mu, s):
-    import scipy as sp
+    import scipy.misc
     a = lambd / mu
-    nom = a**s / sp.misc.factorial(s)
+    nom = a**s / scipy.misc.factorial(s)
     don = 0
     for i in range(s + 1):
-        don += a**i / sp.misc.factorial(i)
+        don += a**i / scipy.misc.factorial(i)
     return nom / don
 
 

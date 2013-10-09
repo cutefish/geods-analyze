@@ -2,7 +2,6 @@ import random
 
 import numpy as np
 
-import sim
 from sim.data import ItemID
 from sim.rand import RandInterval
 from sim.txns import Action, Transaction
