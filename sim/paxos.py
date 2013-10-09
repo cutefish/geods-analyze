@@ -7,8 +7,9 @@ from SimPy.Simulation import initialize, activate, simulate, now
 from SimPy.Simulation import waitevent, hold
 
 import sim
-from core import Alarm, IDable, RetVal, Thread, TimeoutException, infinite
-from rti import RTI, MsgXeiver
+from sim.core import Alarm, IDable, RetVal, Thread, TimeoutException, infinite
+from sim.perf import Profiler
+from sim.rti import RTI, MsgXeiver
 
 class PaxosRoundType(object):
     NONE, NORMAL, FAST = range(3)
@@ -841,6 +842,7 @@ class ProposerRunner(IDable, Thread, MsgXeiver):
         self.iidstep = iidstep
         self.nextInstanceID = iid0 - iidstep
         self.closed = False
+        self.monitor = Profiler.getMonitor(self.ID)
         self.logger = logging.getLogger(self.__class__.__name__)
 
     def close(self):
@@ -1010,9 +1012,9 @@ def initTest():
 
 def verifyResult(learners):
     learner0 = learners[0]
-    logging.info('=== learned values: ===')
+    logging.debug('=== learned values: ===')
     for key, val in learner0.instances.iteritems():
-        logging.info('%s: %s'%(key, val))
+        logging.debug('%s: %s'%(key, val))
         for lnr in learners:
             assert val == lnr.instances[key], \
                 ('%s.instances[%s] = %s == %s = %s.instances[%s]'
@@ -1128,7 +1130,7 @@ def testFastPaxosUncoordinated():
     logging.info('===== END TEST FAST PAXOS UNCOORDINATED=====')
 
 def test():
-    logging.basicConfig(level=logging.INFO, filename='/tmp/geods-paxos-test')
+    logging.basicConfig(level=logging.DEBUG, filename='/tmp/geods-paxos-test')
     console = logging.StreamHandler()
     console.setLevel(logging.INFO)
     formatter = logging.Formatter('%(name)-12s: %(levelname)-8s %(message)s')
