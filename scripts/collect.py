@@ -70,25 +70,40 @@ def skipUntil(fh, pattern):
         if re.search(pattern, line):
             break
 
-def parseRange(r):
-    lb, ub = r.split('-')
-    return int(lb), int(ub)
+class RangeStringParser(object):
+    REGEX = '\[[0-9,: ]+\]'
+    def __init__(self):
+        pass
+
+    def parse(self, string):
+        """Example string: [1, 3:6, 9]."""
+        ret = []
+        if not re.match('^%s$'%RangeStringParser.REGEX, string):
+            raise SyntaxError(
+                'Range string must in the form %s: %s'
+                %(string, RangeStringParser.REGEX))
+        string = string.strip('[]')
+        for n in string.split(','):
+            if ':' not in n:
+                ret.append(int(n))
+            else:
+                ranges = n.split(':')
+                if len(ranges) == 2:
+                    ret += range(int(ranges[0]), int(ranges[1]))
+                else:
+                    ret += range(int(ranges[0]), int(ranges[2]), int(ranges[1]))
+        return ret
 
 def collect(indir, r):
-    lb, ub = parseRange(r)
-    for cfgdir in os.listdir(indir):
-        if not os.path.isdir('%s/%s'%(indir, cfgdir)):
+    dirs = RangeStringParser().parse(r)
+    for d in dirs:
+        rundir = '%s/%s'%(indir, d)
+        if not os.path.isdir(rundir):
+            print 'file: %s in %s'%(d, indir)
             continue
-        try:
-            index = int(cfgdir)
-        except:
-            continue
-        if lb > index or index > ub:
-            continue
-        rundir = '%s/%s'%(indir, cfgdir)
         config = readconfig(rundir)
         result = readresult(rundir)
-        config['out.dir'] = cfgdir
+        config['out.dir'] = str(d)
         print 'exp=(%s,%s)'%(config, result)
 
 def main():

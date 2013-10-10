@@ -97,9 +97,10 @@ def quorum(n, f, ddist):
     """
     sTrip = ddist
     rTrip = ddist + ddist
-    return cond(1.0 / n,
-                _quorumC(n - 1, n - f - 1, rTrip),
-                _quorumR(n, n - f, sTrip, rTrip))
+    #return cond(1.0 / n,
+    #            _quorumC(n - 1, n - f - 1, rTrip),
+    #            _quorumR(n, n - f, sTrip, rTrip))
+    return _quorumC(n - 1, n - f - 1, rTrip)
 
 def _quorumC(n, m, rTrip):
     #front distribution
