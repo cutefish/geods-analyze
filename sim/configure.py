@@ -1,7 +1,12 @@
 """
 Check config and construct instances.
 """
+import math
 import re
+try:
+    import numpy
+except:
+    pass
 
 class Configuration(object):
     def __init__(self):
