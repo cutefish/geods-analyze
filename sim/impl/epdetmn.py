@@ -3,6 +3,7 @@ import random
 from SimPy.Simulation import now
 from SimPy.Simulation import waitevent, hold
 
+from rintvl import RandInterval
 from sim.core import Alarm, IDable, infinite
 from sim.impl.cdetmn import CentralDetmnSystem, CDSNode
 from sim.paxos import initPaxosCluster
@@ -84,18 +85,12 @@ class EPDSNode(CDSNode):
         CDSNode.__init__(self, cnode, index, configs)
         self.nextIID = 0
         self.eLen = self.configs['epdetmn.epoch.length']
-        mu = self.configs.get('epdetmn.epoch.skew.mu', 0)
-        sigma = self.configs.get('epdetmn.epoch.skew.sigma', 0)
-        self.skew = random.normalvariate(mu, sigma)
+        self.skew = self.configs['epdetmn.epoch.skew.dist']
         self.gcID = 0
 
     def run(self):
-        initTime = self.skew
-        while initTime < 0:
-            initTime += self.eLen
-        yield hold, self, initTime
-        periodEvent = Alarm.setPeriodic(self.eLen, name='epoch')
-        lastEpochTime = now()
+        periodEvent = Alarm.setPeriodic(self.eLen, name='epoch', drift=self.skew)
+        lastEpochTime = 0
         count = 0
         lastBatch = False
         while True:

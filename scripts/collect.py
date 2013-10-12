@@ -1,6 +1,12 @@
+import math
 import os
 import re
 import sys
+
+try:
+    import numpy
+except:
+    pass
 
 def readconfig(indir):
     fn = '%s/__config__'%indir

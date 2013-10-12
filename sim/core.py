@@ -2,6 +2,8 @@ from SimPy.Simulation import Process, SimEvent
 from SimPy.Simulation import hold, waitevent
 from SimPy.Simulation import initialize, activate, simulate, now
 
+from rintvl import RandInterval
+
 infinite = -1
 
 class IDable(object):
@@ -60,32 +62,51 @@ class RetVal(object):
 class Alarm(Process):
     @classmethod
     def setOnetime(cls, delay, name=None):
-        tm = Alarm(name)
-        activate(tm, tm.onetime(delay))
+        tm = Alarm(delay, name)
+        activate(tm, tm.onetime())
         return tm.event
 
     @classmethod
-    def setPeriodic(cls, interval, at=0, name=None):
-        tm = Alarm(name)
-        activate(tm, tm.loop(interval), at=at)
+    def setPeriodic(cls, interval, name=None, at=0,
+                    until=infinite, drift=('fixed', 0, {})):
+        tm = Alarm(interval, name, until, drift)
+        activate(tm, tm.loop(), at=at)
         return tm.event
 
-    def __init__(self, name=None):
+    def __init__(self, interval, name=None,
+                 until=infinite, drift=('fixed', 0)):
         Process.__init__(self)
+        self.interval = interval
         if name is not None:
             eventname = name
         else:
             eventname = "a_SimEvent"
         self.event = SimEvent(eventname)
+        self.until = until
+        try:
+            key, mean, cfg = drift
+        except ValueError:
+            key, mean = drift
+            cfg = {}
+        lb = cfg.get('lb', 0); ub = cfg.get('ub', interval)
+        if lb < 0: raise ValueError('drift lb = %s >= 0' %lb)
+        if ub > interval:
+            raise ValueError('drift ub = %s < %s = interval' %interval)
+        cfg['lb'] = lb; cfg['ub'] = ub
+        self.rgen = RandInterval.get(key, mean, cfg)
 
-    def onetime(self, delay):
-        yield hold, self, delay
+    def onetime(self):
+        yield hold, self, self.interval
         self.event.signal()
 
-    def loop(self, interval):
-        while True:
-            yield hold, self, interval
+    def loop(self):
+        left = 0
+        while (self.until < 0) or (now() < self.until):
+            yield hold, self, left
+            wait = self.rgen.next()
+            yield hold, self, wait
             self.event.signal()
+            left = self.interval - wait
 
 class TimeoutException(Exception):
     pass
@@ -325,10 +346,10 @@ class WaitForAlarm(Process):
         yield waitevent, self, alarmevent
         print 'alarmed at %s' %now()
 
-    def periodic(self, interval):
+    def periodic(self, interval, until=infinite, drift=('fixed', 0)):
         print 'set periodic alarm'
-        alarmevent = Alarm.setPeriodic(interval)
-        count = 10
+        alarmevent = Alarm.setPeriodic(interval, until=until, drift=drift)
+        count = 20
         while count > 0:
             print 'work on something else until alarm'
             yield waitevent, self, alarmevent
@@ -339,7 +360,9 @@ def testAlarm():
     wfa1 = WaitForAlarm()
     activate(wfa1, wfa1.onetime(10))
     wfa2 = WaitForAlarm()
-    activate(wfa2, wfa2.periodic(5), at=15)
+    activate(wfa2, wfa2.periodic(5, until=50), at=15)
+    wfa3 = WaitForAlarm()
+    activate(wfa3, wfa3.periodic(5, drift=('norm', 0, {'sigma':0.1})), at=60)
 
 class Child(Thread):
     def run(self):

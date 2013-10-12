@@ -341,7 +341,7 @@ def getFPLatencyDist(n, ddist, lambd):
         cRtrip, {'arrival.process' : 'poisson', 'poisson.lambda' : lambd}), \
             (rtrip.mean, rtrip.std, cRtrip.mean, cRtrip.std)
 
-def getEBLatencyDist(n, ddist, sync, elen):
+def getEPLatencyDist(n, ddist, sync, elen):
     f = int(np.ceil(n / 2.0) - 1)
     rtrip = quorum(n, f, ddist)
     syncRtrip = rtrip + sync
@@ -350,10 +350,9 @@ def getEBLatencyDist(n, ddist, sync, elen):
     lb = 0; ub = elen; length = int((ub - lb) / ddist.h) + 1
     pmf = [1.0 / length] * length
     ewait = DDist(lb, pmf, h=ddist.h)
-    return ewait + oodelay(
-        elatency, {'arrival.process' : 'fixed', 'fixed.interval' : elen}), \
-            (rtrip.mean, rtrip.std, syncRtrip.mean, syncRtrip.std,
-             elatency.mean, elatency.std)
+    delay = oodelay(elatency,
+                    {'arrival.process' : 'fixed', 'fixed.interval' : elen})
+    return ewait + delay, delay, rtrip
 
 #####  TEST  #####
 

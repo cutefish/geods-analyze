@@ -1,5 +1,5 @@
 
-from SimPy.Simulation import waitevent
+from SimPy.Simulation import waitevent, now
 
 from sim.core import infinite
 from sim.impl.cdetmn import CentralDetmnSystem, CDSNode
@@ -58,6 +58,9 @@ class SLPaxosDetmnSystem(CentralDetmnSystem):
         self.logger.info('num.no.collision=%s'%numNCol)
         if numCol + numNCol != 0:
             self.logger.info('collision.ratio=%s'%(float(numCol) / (numCol + numNCol)))
+        mean, std, histo, count = rootMon.getObservedStats('.*master.arrival.interval')
+        self.logger.info('master.arrival.interval.mean=%s'%mean)
+        self.logger.info('master.arrival.interval.std=%s'%std)
 
 class SPDCNode(ClientNode):
     def __init__(self, system, ID, configs):
@@ -91,6 +94,7 @@ class SPDSNode(CDSNode):
 
     def run(self):
         proposingTxns = set([])
+        prev = 0
         while True:
             #handle new transaction
             while len(self.newTxns) > 0:
@@ -99,6 +103,12 @@ class SPDSNode(CDSNode):
                 self.monitor.start('order.consensus.%s'%txn)
                 proposingTxns.add(txn)
                 self.cnode.paxosPRunner.addRequest(txn)
+                #the arrive interval should be exponential distribution
+                #curr = now()
+                #interval = curr - prev
+                #self.monitor.observe('master.arrival.interval', interval)
+                #prev = curr
+                #assert len(self.newTxns) == 0
             #handle new instance
             instances = self.cnode.paxosLearner.instances
             while self.nextIID in instances:

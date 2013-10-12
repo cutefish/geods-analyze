@@ -1,32 +1,37 @@
 #data configs
 dataset.groups = {
-    1 : 128,
-    2 : 128,
-    3 : 128,
-    4 : 128,
-    5 : 128,
+    1 : 16384,
 }
 
 #system configs
-num.zones = 2
-num.storage.nodes.per.zone = 2
+num.zones = 5
+num.storage.nodes.per.zone = 1
 max.num.txns.in.system = 1024
 max.num.txns.per.storage.node = 1024
 
 ##network configs
-network.sim.class = 'network.FixedLatencyNetwork'
-fixed.latency.nw.within.zone = 5
-fixed.latency.nw.cross.zone = 100
+nw.latency.within.zone = ('fixed', 0)
+nw.latency.cross.zone = ('lognorm', 100, {'mu': math.log(100.0) - 0.5**2 / 2, 'sigma':0.5, 'lb':40, 'ub':300})
 
 #transaction configs
-txn.gen.impl = 'txngen.UniformTxnGen'
-total.num.txns = 1000
+txn.gen.impl = 'sim.txngen.UniformTxnGen'
+total.num.txns = 50
 txn.arrive.interval.dist = ('expo', 100, )  #(dist, mean, [kargs])
 #'freq', 'nwrites', 'nreads', 'groups', 'intvl.dist'
 txn.classes = [
-    {'freq':1, 'nwrites':8, 'intvl.dist':('expo', 10,)},
+    #{'freq':1, 'nwrites':20, 'action.intvl.dist':('expo', 20,)},
+    {'freq':1, 'nwrites':10, 'action.intvl.dist':('fixed', 0,), 'commit.intvl.dist':('fixed', 0)},
 ]  
+
+#impl configs
+epdetmn.epoch.length = 50
+epdetmn.epoch.skew.dist = ('fixed', 0)
 
 #simulation configs
 simulation.duration = 600000     #10 min
-system.impl = 'system.BaseSystem'
+#system.impl = 'sim.impl.cdylock.CentralDyLockSystem'
+#system.impl = 'sim.impl.cdetmn.CentralDetmnSystem'
+#system.impl = 'sim.impl.mstdylock.MasterDyLockSystem'
+#system.impl = 'sim.impl.slpdetmn.SLPaxosDetmnSystem'
+#system.impl = 'sim.impl.fpdetmn.FPaxosDetmnSystem'
+system.impl = 'sim.impl.epdetmn.EPaxosDetmnSystem'
