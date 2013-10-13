@@ -61,14 +61,14 @@ class RetVal(object):
 
 class Alarm(Process):
     @classmethod
-    def setOnetime(cls, delay, name=None):
-        tm = Alarm(delay, name)
+    def setOnetime(cls, delay, name=None, at=0, drift=('fixed', 0)):
+        tm = Alarm(delay, name, drift=drift)
         activate(tm, tm.onetime())
         return tm.event
 
     @classmethod
     def setPeriodic(cls, interval, name=None, at=0,
-                    until=infinite, drift=('fixed', 0, {})):
+                    until=infinite, drift=('fixed', 0)):
         tm = Alarm(interval, name, until, drift)
         activate(tm, tm.loop(), at=at)
         return tm.event
@@ -96,17 +96,18 @@ class Alarm(Process):
         self.rgen = RandInterval.get(key, mean, cfg)
 
     def onetime(self):
-        yield hold, self, self.interval
+        drift = self.rgen.next()
+        yield hold, self, self.interval + drift
         self.event.signal()
 
     def loop(self):
         left = 0
         while (self.until < 0) or (now() < self.until):
             yield hold, self, left
-            wait = self.rgen.next()
-            yield hold, self, wait
+            drift = self.rgen.next()
+            yield hold, self, drift
             self.event.signal()
-            left = self.interval - wait
+            left = self.interval - drift
 
 class TimeoutException(Exception):
     pass

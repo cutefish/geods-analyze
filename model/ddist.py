@@ -194,7 +194,11 @@ class DDist(object):
 
     @classmethod
     def sample(cls, config, h=0.1, tail=('p', 0), tnh=1, num=100000):
-        key, mean, cfg = config
+        try:
+            key, mean, cfg = config
+        except:
+            key, mean = config
+            cfg = {}
         x = RandInterval.generate(key, mean, cfg, num)
         return cls.create(x, h, tail, tnh)
 

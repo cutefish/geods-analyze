@@ -245,8 +245,10 @@ def _oodelayFixedInterval(ddist, intvl):
             curr *= ddist.cmfy[j]
             x += intvl
             if curr < 1e-10:
+                x = ddist.ub
                 break
             if abs(prev - curr) / curr < 1e-6:
+                x = ddist.ub
                 break
         #tail part
         while x < ddist.ub:

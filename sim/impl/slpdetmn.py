@@ -52,9 +52,9 @@ class SLPaxosDetmnSystem(CentralDetmnSystem):
         self.logger.info('ntries.time.std=%s'%std)
         #self.logger.info('ntries.time.histo=(%s, %s)'%histo)
         #self.logger.info('ntries.time.count=%s'%count)
-        numCol = rootMon.getObservedCount('.*collision')
+        numCol = rootMon.getObservedCount('.*has_collision')
         numNCol = rootMon.getObservedCount('.*no_collision')
-        self.logger.info('num.collision=%s'%numCol)
+        self.logger.info('num.has.collision=%s'%numCol)
         self.logger.info('num.no.collision=%s'%numNCol)
         if numCol + numNCol != 0:
             self.logger.info('collision.ratio=%s'%(float(numCol) / (numCol + numNCol)))

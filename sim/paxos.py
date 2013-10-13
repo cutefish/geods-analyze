@@ -382,15 +382,15 @@ class Acceptor(IDable, Thread, MsgXeiver):
                     acc = self.keyAccs[0]
                     r, v = q.votes[acc]
                     chosen = v
-                    self.logger.debug('%s resolve collision:'
+                    self.logger.debug('%s has collision:'
                                       'iid=%s, rnd=%s, type=%s, '
                                       'value=%s, acc=%s, quorum=%s, at %s'
                                       %(self.ID, iid, rnd,
                                         PaxosRoundType.TYPES[rtype],
                                         chosen, acc, quorum, now()))
-                    self.monitor.observe('collision', 1)
+                    self.monitor.observe('has_collision', 1)
                 else:
-                    self.logger.debug('%s resolve collision not needed:'
+                    self.logger.debug('%s no collision:'
                                       'iid=%s, rnd=%s, type=%s, '
                                       'value=%s, acc=%s, quorum=%s, at %s'
                                       %(self.ID, iid, rnd,
@@ -898,6 +898,8 @@ class ProposerRunner(IDable, Thread, MsgXeiver):
                                         instanceID, value,
                                         self.timeout,
                                         self.isFast, self.noPhase1)
+                    self.logger.debug('%s previous propose %s failed at %s'
+                                %(self, prev, now()))
                     proposer.start()
                 else:
                     self.monitor.start('%s_psucc'%prev, prev.stime)
