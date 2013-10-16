@@ -28,13 +28,14 @@ def calcDetmnExec(n, m, k, s):
     pt = 1 - ((n - (m - 1)*k) / n)**k
     p = 1 - ((n - k) / n)**k
     nr = (1 - (1 - p)**m) / p
-    h = (m - 1) / ((1 - (1 - p)**(m - 1)) / p) + 1
+    #h = (m - 1) / ((1 - (1 - p)**(m - 1)) / p)
+    h = m / ((1 - (1 - p)**(m - 1)) / p)
     #h = (m - 1) * p + 1
     #h = 0
     #for i in range(0, int(m - 1)):
     #    h += i * scipy.misc.comb(m - 2, i) * p**i * (1 - p)**(m - 2 - i)
     #h = h + 1
-    w = (p * 1 + (1 - p) * 0.5 + h - 2) * k * s
+    w = (p * 1 + (1 - p) * 0.5 + h - 1) * k * s
     res = k * s + pt * w
     beta = pt * w / res
     return pt, nr, h, w, res, beta
