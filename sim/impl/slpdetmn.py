@@ -3,7 +3,7 @@ from SimPy.Simulation import waitevent, now
 
 from sim.core import infinite
 from sim.impl.cdetmn import CentralDetmnSystem, CDSNode
-from sim.paxos import initPaxosCluster
+from sim.paxos import initPaxosCluster, profilePaxos
 from sim.perf import Profiler
 from sim.system import ClientNode, StorageNode
 
@@ -23,44 +23,7 @@ class SLPaxosDetmnSystem(CentralDetmnSystem):
     def profile(self):
         CentralDetmnSystem.profile(self)
         rootMon = Profiler.getMonitor('/')
-        pmean, pstd, phisto, pcount = \
-                rootMon.getElapsedStats('.*order.consensus')
-        self.logger.info('order.consensus.time.mean=%s'%pmean)
-        self.logger.info('order.consensus.time.std=%s'%pstd)
-        #self.logger.info('order.consensus.time.histo=(%s, %s)'%(phisto))
-        totalTime = rootMon.getElapsedStats('.*propose_value')
-        mean, std, histo, count = totalTime
-        self.logger.info('paxos.propose.total.time.mean=%s'%mean)
-        self.logger.info('paxos.propose.total.time.std=%s'%std)
-        #self.logger.info('paxos.propose.total.time.histo=(%s, %s)'%histo)
-        #self.logger.info('paxos.propose.total.time.count=%s'%count)
-        succTime = rootMon.getElapsedStats('.*_psucc')
-        mean, std, histo, count = succTime
-        self.logger.info('paxos.propose.succ.time.mean=%s'%mean)
-        self.logger.info('paxos.propose.succ.time.std=%s'%std)
-        #self.logger.info('paxos.propose.succ.time.histo=(%s, %s)'%histo)
-        #self.logger.info('paxos.propose.succ.time.count=%s'%count)
-        failTime = rootMon.getElapsedStats('.*_pfail')
-        mean, std, histo, count = failTime
-        self.logger.info('paxos.propose.fail.time.mean=%s'%mean)
-        self.logger.info('paxos.propose.fail.time.std=%s'%std)
-        #self.logger.info('paxos.propose.fail.time.histo=(%s, %s)'%histo)
-        #self.logger.info('paxos.propose.fail.time.count=%s'%count)
-        ntries = rootMon.getObservedStats('.*ntries')
-        mean, std, histo, count = ntries
-        self.logger.info('ntries.time.mean=%s'%mean)
-        self.logger.info('ntries.time.std=%s'%std)
-        #self.logger.info('ntries.time.histo=(%s, %s)'%histo)
-        #self.logger.info('ntries.time.count=%s'%count)
-        numCol = rootMon.getObservedCount('.*has_collision')
-        numNCol = rootMon.getObservedCount('.*no_collision')
-        self.logger.info('num.has.collision=%s'%numCol)
-        self.logger.info('num.no.collision=%s'%numNCol)
-        if numCol + numNCol != 0:
-            self.logger.info('collision.ratio=%s'%(float(numCol) / (numCol + numNCol)))
-        mean, std, histo, count = rootMon.getObservedStats('.*master.arrival.interval')
-        self.logger.info('master.arrival.interval.mean=%s'%mean)
-        self.logger.info('master.arrival.interval.std=%s'%std)
+        profilePaxos(self.logger, rootMon)
 
 class SPDCNode(ClientNode):
     def __init__(self, system, ID, configs):
@@ -94,7 +57,6 @@ class SPDSNode(CDSNode):
 
     def run(self):
         proposingTxns = set([])
-        prev = 0
         while True:
             #handle new transaction
             while len(self.newTxns) > 0:
@@ -103,12 +65,6 @@ class SPDSNode(CDSNode):
                 self.monitor.start('order.consensus.%s'%txn)
                 proposingTxns.add(txn)
                 self.cnode.paxosPRunner.addRequest(txn)
-                #the arrive interval should be exponential distribution
-                #curr = now()
-                #interval = curr - prev
-                #self.monitor.observe('master.arrival.interval', interval)
-                #prev = curr
-                #assert len(self.newTxns) == 0
             #handle new instance
             instances = self.cnode.paxosLearner.instances
             while self.nextIID in instances:

@@ -1,5 +1,7 @@
 import logging
 import math
+import numpy
+import random
 #import pdb
 
 from SimPy.Simulation import SimEvent
@@ -581,9 +583,19 @@ class Coordinator(IDable, Thread, MsgXeiver):
                 if quorum.state == VPickQuorum.COL_NONE:
                     #collision and none outstanding needs special treatment
                     self._recoverCollision(iid, quorum)
-                    self.monitor.observe('collision', 1)
+                    self.monitor.observe('has_collision', 1)
+                    self.logger.debug('%s resolve collision: '
+                                      'iid=%s, rnd=%s, type=%s, value=%s at %s'
+                                      %(self.ID, iid, rnd,
+                                        PaxosRoundType.TYPES[rtype],
+                                        value, now()))
                 else:
                     self.monitor.observe('no_collision', 1)
+                    self.logger.debug('%s see no collision: '
+                                      'iid=%s, rnd=%s, type=%s, value=%s at %s'
+                                      %(self.ID, iid, rnd,
+                                        PaxosRoundType.TYPES[rtype],
+                                        value, now()))
                     #some value is outstanding
                     assert quorum.state != VPickQuorum.NONE, \
                             'quorum: %s'%quorum
@@ -591,13 +603,19 @@ class Coordinator(IDable, Thread, MsgXeiver):
                         self.sendMsg(acc, '2a',
                                      (self, iid, rnd + self.rndstep,
                                       quorum.outstanding))
+                del self.iquorums[iid]
 
     def _recoverCollision(self, instanceID, quorum):
         rnd = quorum.maxRnd
         if (instanceID, rnd) in self.chosenValues:
             value = self.chosenValues[(instanceID, rnd)]
         else:
-            value = iter(sorted(quorum.mrValues.keys())).next()
+            #pick the first value
+            #value = iter(sorted(quorum.mrValues.keys())).next()
+
+            #randomly pick a value to make it balanced
+            value = random.choice(quorum.mrValues.keys())
+
             self.chosenValues[(instanceID, rnd)] = value
         for acc in self.acceptors:
             self.sendMsg(acc, '2a',
@@ -660,6 +678,10 @@ class Proposer(IDable, Thread, MsgXeiver):
             try:
                 if self.instanceID in self.learner.instances:
                     break
+                self.logger.debug('%s start propose '
+                                  'iid=%s, rnd=%s, value=%s at %s'
+                                  %(self, self.instanceID, self.crnd,
+                                    self.value, now()))
                 #if we aren't already sure which value to pick
                 if pvalue is None:
                     #initialize the pick quorum
@@ -794,6 +816,10 @@ class Proposer(IDable, Thread, MsgXeiver):
     def fastPropose(self):
         while True:
             try:
+                self.logger.debug('%s start propose '
+                                  'iid=%s, rnd=%s, value=%s at %s'
+                                  %(self, self.instanceID,
+                                    self.crnd, self.value, now()))
                 self._sendFastMsg()
                 for step in self._checkValue():
                     yield step
@@ -872,6 +898,10 @@ class ProposerRunner(IDable, Thread, MsgXeiver):
         return self.nextInstanceID
 
     def run(self):
+        #for arrival distribution
+        pprev = 0
+        sprev = 0
+        fprev = 0
         while not self.closed:
             while len(self.requests) > 0:
                 value = self.requests.pop(0)
@@ -888,6 +918,7 @@ class ProposerRunner(IDable, Thread, MsgXeiver):
                 if not prev.isSuccess:
                     self.monitor.start('%s_pfail'%prev, prev.stime)
                     self.monitor.stop('%s_pfail'%prev, prev.etime)
+                    self.monitor.observe('pfail.start', prev.stime)
                     value = prev.value
                     if value not in self.activeValues:
                         self.activeValues[value] = 0
@@ -904,6 +935,7 @@ class ProposerRunner(IDable, Thread, MsgXeiver):
                 else:
                     self.monitor.start('%s_psucc'%prev, prev.stime)
                     self.monitor.stop('%s_psucc'%prev, prev.etime)
+                    self.monitor.observe('psucc.start', prev.stime)
                     value = prev.value
                     ntries = self.activeValues.get(value, 0)
                     self.monitor.observe('ntries_propose_%s'%value, ntries)
@@ -969,6 +1001,65 @@ def initPaxosCluster(pnodes, anodes, coordinatedRecovery,
     else:
         raise ValueError('unknown proposer placement policy: %s'
                          %propPlacement)
+
+def profilePaxos(logger, monitor):
+    pmean, pstd, phisto, pcount = \
+            monitor.getElapsedStats('.*order.consensus')
+    logger.info('order.consensus.time.mean=%s'%pmean)
+    logger.info('order.consensus.time.std=%s'%pstd)
+    #logger.info('order.consensus.time.histo=(%s, %s)'%(phisto))
+    totalTime = monitor.getElapsedStats('.*propose_value')
+    mean, std, histo, count = totalTime
+    logger.info('paxos.propose.total.time.mean=%s'%mean)
+    logger.info('paxos.propose.total.time.std=%s'%std)
+    #logger.info('paxos.propose.total.time.histo=(%s, %s)'%histo)
+    #logger.info('paxos.propose.total.time.count=%s'%count)
+    succTime = monitor.getElapsedStats('.*_psucc')
+    mean, std, histo, count = succTime
+    logger.info('paxos.propose.succ.time.mean=%s'%mean)
+    logger.info('paxos.propose.succ.time.std=%s'%std)
+    #logger.info('paxos.propose.succ.time.histo=(%s, %s)'%histo)
+    #logger.info('paxos.propose.succ.time.count=%s'%count)
+    failTime = monitor.getElapsedStats('.*_pfail')
+    mean, std, histo, count = failTime
+    logger.info('paxos.propose.fail.time.mean=%s'%mean)
+    logger.info('paxos.propose.fail.time.std=%s'%std)
+    #logger.info('paxos.propose.fail.time.histo=(%s, %s)'%histo)
+    #logger.info('paxos.propose.fail.time.count=%s'%count)
+    ntries = monitor.getObservedStats('.*ntries')
+    mean, std, histo, count = ntries
+    logger.info('paxos.ntries.time.mean=%s'%mean)
+    logger.info('paxos.ntries.time.std=%s'%std)
+    #logger.info('paxos.ntries.time.histo=(%s, %s)'%histo)
+    #logger.info('paxos.ntries.time.count=%s'%count)
+    numCol = monitor.getObservedCount('.*has_collision')
+    numNCol = monitor.getObservedCount('.*no_collision')
+    logger.info('paxos.num.has.collision=%s'%numCol)
+    logger.info('paxos.num.no.collision=%s'%numNCol)
+    if numCol + numNCol != 0:
+        logger.info('paxos.collision.ratio=%s'%(float(numCol) / (numCol + numNCol)))
+    #interval
+    times, fstarts = monitor.getObserved('.*pfail.start')
+    times, sstarts = monitor.getObserved('.*psucc.start')
+    starts = fstarts + sstarts
+    _logIntervalStats(logger, fstarts, 'paxos.fail.interval')
+    _logIntervalStats(logger, sstarts, 'paxos.succ.interval')
+    _logIntervalStats(logger, starts, 'paxos.interval')
+
+def _logIntervalStats(logger, stimes, key):
+    if len(stimes) == 0:
+        logger.info('%s.empty=True'%key)
+        return
+    stimes = sorted(stimes)
+    intervals = [stimes[0]]
+    for i in range(1, len(stimes)):
+        intervals.append(stimes[i] - stimes[i - 1])
+    logger.info('%s.mean=%s'%(key, numpy.mean(intervals)))
+    logger.info('%s.std=%s'%(key, numpy.std(intervals)))
+    freqs, bins = numpy.histogram(intervals)
+    logger.info('%s.histo=(%s, %s)'%(key, freqs, bins))
+    logger.info('%s.count=%s'%(key, len(intervals)))
+
 
 ##### TEST #####
 import random
