@@ -1018,14 +1018,17 @@ def profilePaxos(logger, monitor):
     mean, std, histo, count = succTime
     logger.info('paxos.propose.succ.time.mean=%s'%mean)
     logger.info('paxos.propose.succ.time.std=%s'%std)
+    succCount = count
     #logger.info('paxos.propose.succ.time.histo=(%s, %s)'%histo)
     #logger.info('paxos.propose.succ.time.count=%s'%count)
     failTime = monitor.getElapsedStats('.*_pfail')
     mean, std, histo, count = failTime
     logger.info('paxos.propose.fail.time.mean=%s'%mean)
     logger.info('paxos.propose.fail.time.std=%s'%std)
+    failCount = count
     #logger.info('paxos.propose.fail.time.histo=(%s, %s)'%histo)
     #logger.info('paxos.propose.fail.time.count=%s'%count)
+    logger.info('paxos.propose.fail.ratio=%s'%(float(failCount) / (failCount + succCount)))
     ntries = monitor.getObservedStats('.*ntries')
     mean, std, histo, count = ntries
     logger.info('paxos.ntries.time.mean=%s'%mean)
