@@ -9,6 +9,7 @@ import matplotlib.pylab as plt
 
 from model.ddist import DDist
 from model.protocol import getSLPLatencyDist
+from model.protocol import getEPLatencyDist
 
 DDists = { }
 
@@ -31,7 +32,11 @@ def readparams(rfile):
     return params
 
 def getDDist(config):
-    key, mean, cfg = config
+    try:
+        key, mean, cfg = config
+    except:
+        key, mean = config
+        cfg = {}
     strings = []
     strings.append(str(key))
     strings.append(str(mean))
@@ -81,12 +86,12 @@ def validate(params):
             rtripS = result['paxos.propose.total.time.mean']
             #data
             splData['rtrip'].x.append(arrmean)
-            splData['rtrip'].y.append(rtripM.mean / rtripS)
+            splData['rtrip'].y.append(rtripS / rtripM.mean)
             splData['odelay'].x.append(arrmean)
-            splData['odelay'].y.append(odelayM.mean / odelayS)
+            splData['odelay'].y.append(odelayS / odelayM.mean)
             splData['res'].x.append(arrmean)
-            splData['res'].y.append(resM.mean / resS)
-            print 'slp', resM.mean /resS
+            splData['res'].y.append(resS / resM.mean)
+            print 'slp', resS / resM.mean
         elif 'epdetmn' in config['system.impl']:
             #model
             elen = config['epdetmn.epoch.length']
@@ -99,23 +104,25 @@ def validate(params):
             rtripS = result['paxos.propose.total.time.mean']
             #data
             epData['rtrip'].x.append(arrmean)
-            epData['rtrip'].y.append(rtripM.mean / rtripS)
+            epData['rtrip'].y.append(rtripS / rtripM.mean)
             epData['odelay'].x.append(arrmean)
-            epData['odelay'].y.append(odelayM.mean / odelayS)
+            epData['odelay'].y.append(odelayS / odelayM.mean)
             epData['res'].x.append(arrmean)
-            epData['res'].y.append(resM.mean / resS)
-            print 'ep', resM.mean /resS
+            epData['res'].y.append(resS / resM.mean)
+            print 'ep', resS / resM.mean, resS
         else:
             continue
     for key, val in splData.iteritems():
         fig = plt.figure()
         axes = fig.add_subplot(111)
-        axes.plot(val.x, val.y, '.r')
+        #axes.plot(val.x, val.y, '.r')
+        axes.plot(val.y, '.r')
         fig.savefig('tmp/%s_%s.pdf'%('vpaxos_vspl', key))
     for key, val in epData.iteritems():
         fig = plt.figure()
         axes = fig.add_subplot(111)
-        axes.plot(val.x, val.y, '.r')
+        #axes.plot(val.x, val.y, '.r')
+        axes.plot(val.y, '.r')
         fig.savefig('tmp/%s_%s.pdf'%('vpaxos_vep', key))
 
 def compare(params):

@@ -138,6 +138,7 @@ def approx(params):
             data['res'].y.append(resR / resM)
             data['load'].x.append(beta)
             data['load'].y.append(lR / m)
+            print resR / resM
         else:
             continue
     for key, val in data.iteritems():
