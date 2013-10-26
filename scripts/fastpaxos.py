@@ -8,6 +8,79 @@ import time
 from rintvl import RandInterval
 
 infinite = sys.maxint
+prevtime = time.time()
+
+def getGenerator(gcfg):
+    try:
+        key, mean, cfg = gcfg
+    except:
+        key, mean = gcfg
+        cfg = {}
+    return RandInterval.get(key, mean, cfg)
+
+def printSlot(j):
+    curr = time.time()
+    if curr - prevTime > 5:
+        print 'on slot %s'%j
+        prevtime = curr
+
+def computeY(j, X, Y, A, V, B, E, lGen):
+    finish = True
+    for i in range(len(Y[j])):
+        if E[i] != -1:
+            assert j > E[i]
+            Y[j][i] = infinite
+        elif B[i] != -1:
+            assert j > B[i]
+            assert X[i] <= V[j-1][i] and Y[j-1][i] >= A[j-1], \
+                    ('X[%s] = %s <= %s = V[%s-1][%s] and '
+                     'Y[%s-1][%s] =%s >= %s = A[%s-1] '
+                     'j=%s, B[%s]=%s'
+                     %(i, X[i], V[j-1][i], j, i, j, i, Y[j-1][i], A[j-1],j,
+                       j, i, B[i]))
+            Y[j][i] = V[j-1][i] + lGen.next()
+        else:
+            Y[j][i] = X[i] + lGen.next()
+            finish = False
+    return finish
+
+def computeA(j, Y, A):
+    mval = Y[j][0]
+    midx = 0
+    for i in range(1, len(Y[j])):
+        if Y[j][i] < mval:
+            mval = Y[j][i]
+            midx = i
+    assert mval != infinite
+    A[j] = mval
+    return mval, midx
+
+def printXYAVBE(j, X, Y, A, V, B, E):
+    nprop = len(X)
+    strs = ['X:']
+    for i in range(nprop):
+        strs.append('%.2f'%X[i])
+    print ' '.join(strs)
+    strs = ['Y:']
+    for i in range(nprop):
+        if Y[j][i] == infinite:
+            strs.append('nan')
+        else:
+            strs.append('%.2f'%Y[j][i])
+    print ' '.join(strs)
+    print 'A: %.2f'%A[j]
+    strs = ['V:']
+    for i in range(nprop):
+        strs.append('%.2f'%V[j][i])
+    print ' '.join(strs)
+    strs = ['B:']
+    for i in range(nprop):
+        strs.append(str(B[i]))
+    print ' '.join(strs)
+    strs = ['E:']
+    for i in range(nprop):
+        strs.append(str(E[i]))
+    print ' '.join(strs)
 
 def runSingleAcceptorFailDiscarded(nprop, mean, lcfg, debug=False):
     #generate X_i
@@ -16,78 +89,39 @@ def runSingleAcceptorFailDiscarded(nprop, mean, lcfg, debug=False):
     for i in range(1, nprop):
         X.append(expoGen.next() + X[i-1])
     #run
-    try:
-        key, mean, cfg = lcfg
-    except:
-        key, mean = lcfg
-        cfg = {}
-    zGen = RandInterval.get(key, mean, cfg)
+    lGen = getGenerator(lcfg)
     A = [0] * nprop
     Y = []
+    V = []
     B = [-1] * nprop
     E = [-1] * nprop
-    S = [False] * nprop
-    prevTime = time.time()
+    S = [None] * nprop
     for j in range(nprop):
-        curr = time.time()
-        if curr - prevTime > 5:
-            print 'on slot %s'%j
-            prevTime = curr
         Y.append([0] * nprop)
+        V.append([0] * nprop)
         finish = True
         #compute Y
-        for i in range(nprop):
-            if j == 0:
-                Y[j][i] = X[i] + zGen.next()
-                finish = False
-            elif X[i] > A[j-1]:
-                Y[j][i] = X[i] + zGen.next()
-                finish = False
-            else:
-                assert E[i] != -1
-                Y[j][i] = infinite
+        finish = computeY(j, X, Y, A, V, B, E, lGen)
         if finish:
             break
         #compute A
-        mval = Y[j][0]
-        midx = 0
-        for i in range(1, nprop):
-            if Y[j][i] < mval:
-                mval = Y[j][i]
-                midx = i
-        assert mval != infinite
-        A[j] = mval
+        mval, midx = computeA(j, Y, A)
+        #compute V
         for i in range(nprop):
-            if X[i] < A[j] and B[i] == -1:
+            V[j][i] = A[j] + lGen.next()
+        #compute B and E
+        for i in range(nprop):
+            if X[i] < V[j][i] and B[i] == -1:
                 B[i] = j
                 E[i] = j
+                S[i] = False
         S[midx] = True
-        #compute fail latency
         if debug:
-            xstrs = ['X:']
+            printXYAVBE(j, X, Y, A, V, B, E)
+            strs = ['S:']
             for i in range(nprop):
-                xstrs.append('%.2f'%X[i])
-            print ' '.join(xstrs)
-            ystrs = ['Y:']
-            for i in range(nprop):
-                if Y[j][i] == infinite:
-                    ystrs.append('nan')
-                else:
-                    ystrs.append('%.2f'%Y[j][i])
-            print ' '.join(ystrs)
-            print 'A: %.2f'%A[j]
-            bstrs = ['B:']
-            for i in range(nprop):
-                bstrs.append(str(B[i]))
-            print ' '.join(bstrs)
-            estrs = ['E:']
-            for i in range(nprop):
-                estrs.append(str(E[i]))
-            print ' '.join(estrs)
-            sstrs = ['S:']
-            for i in range(nprop):
-                sstrs.append(str(S[i])[0])
-            print ' '.join(sstrs)
+                strs.append(str(S[i])[0])
+            print ' '.join(strs)
             print
     #compute fail rate and fail latency
     failCnt = 0
@@ -96,9 +130,9 @@ def runSingleAcceptorFailDiscarded(nprop, mean, lcfg, debug=False):
     for i in range(nprop):
         if S[i] is False:
             failCnt += 1
-            failLatencies.append(A[E[i]] - X[i])
+            failLatencies.append(V[E[i]][i] - X[i])
         else:
-            succLatencies.append(A[E[i]] - X[i])
+            succLatencies.append(V[E[i]][i] - X[i])
     print 'fail.prob=%s'%(float(failCnt) / nprop)
     print 'succ.latency.mean=%s'%numpy.mean(succLatencies)
     print 'succ.latency.std=%s'%numpy.std(succLatencies)
@@ -114,14 +148,10 @@ def runSingleAcceptorFailRestart(nprop, mean, lcfg, debug=False):
     for i in range(1, nprop):
         X.append(expoGen.next() + X[i-1])
     #run
-    try:
-        key, mean, cfg = lcfg
-    except:
-        key, mean = lcfg
-        cfg = {}
-    zGen = RandInterval.get(key, mean, cfg)
+    lGen = getGenerator(lcfg)
     A = [0] * nprop
     Y = []
+    V = []
     B = [-1] * nprop
     E = [-1] * nprop
     prevTime = time.time()
@@ -131,66 +161,23 @@ def runSingleAcceptorFailRestart(nprop, mean, lcfg, debug=False):
             print 'on slot %s'%j
             prevTime = curr
         Y.append([0] * nprop)
+        V.append([0] * nprop)
         #compute Y
+        computeY(j, X, Y, A, V, B, E, lGen)
+        #compute A
+        mval, midx = computeA(j, Y, A)
+        #compute V
         for i in range(nprop):
-            if j == 0:
-                Y[j][i] = X[i] + zGen.next()
-            #elif Y[j-1][i] == infinite:
-            #    Y[j][i] = infinite
-            #elif Y[j-1][i] == A[j-1]:
-            #    Y[j][i] = infinite
-            elif E[i] != -1:
-                assert j > E[i]
-                Y[j][i] = infinite
-            elif X[i] > A[j-1]:
-                Y[j][i] = X[i] + zGen.next()
-            else:
-                assert X[i] <= A[j-1] and Y[j-1][i] >= A[j-1], \
-                        ('X[%s] = %s <= %s = A[%s-1] and '
-                         'Y[%s-1][%s] =%s > %s = A[%s-1]'
-                         %(i, X[i], A[j-1], j, j, i, Y[j-1][i], A[j-1],j))
-                Y[j][i] = A[j-1] + zGen.next()
-        #compute A and R
-        mval = Y[j][0]
-        midx = 0
-        for i in range(1, nprop):
-            if Y[j][i] < mval:
-                mval = Y[j][i]
-                midx = i
-        assert mval != infinite
-        A[j] = mval
+            V[j][i] = A[j] + lGen.next()
+        #compute B and E
         for i in range(nprop):
-            if X[i] < A[j] and B[i] == -1:
+            if X[i] < V[j][i] and B[i] == -1:
                 B[i] = j
         E[midx] = j
         if debug:
-            xstrs = ['X:']
-            for i in range(nprop):
-                xstrs.append('%.2f'%X[i])
-            print ' '.join(xstrs)
-            ystrs = ['Y:']
-            for i in range(nprop):
-                if Y[j][i] == infinite:
-                    ystrs.append('nan')
-                else:
-                    ystrs.append('%.2f'%Y[j][i])
-            print ' '.join(ystrs)
-            print 'A: %.2f'%A[j]
-            bstrs = ['B:']
-            for i in range(nprop):
-                bstrs.append(str(B[i]))
-            print ' '.join(bstrs)
-            estrs = ['E:']
-            for i in range(nprop):
-                estrs.append(str(E[i]))
-            print ' '.join(estrs)
+            printXYAVBE(j, X, Y, A, V, B, E)
             print
     #compute stats
-    if debug:
-        lstrs = ['ET:']
-        for i in range(nprop):
-            lstrs.append('%.2f'%Y[E[i]][i])
-        print ' '.join(lstrs)
     R = [0] * nprop
     T = [0] * nprop
     S = []
@@ -207,10 +194,14 @@ def runSingleAcceptorFailRestart(nprop, mean, lcfg, debug=False):
         else:
             S.append(A[E[i]] - A[E[i] - 1])
     if debug:
-        lstrs = ['L:']
+        strs = ['Yk:']
         for i in range(nprop):
-            lstrs.append('%.2f'%L[i])
-        print ' '.join(lstrs)
+            strs.append('%.2f'%Y[E[i]][i])
+        print ' '.join(strs)
+        strs = ['T:']
+        for i in range(nprop):
+            strs.append('%.2f'%T[i])
+        print ' '.join(strs)
     print 'nretries.mean=%s'%numpy.mean(R)
     print 'nretries.std=%s'%numpy.std(R)
     print 'nretries.histo=(%s, %s)'%numpy.histogram(R)

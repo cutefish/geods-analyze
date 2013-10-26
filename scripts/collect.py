@@ -57,7 +57,6 @@ def readresult(indir):
                 if next == '' or re.match('[a-zA-Z]+\.INFO:', next):
                     raise ValueError(
                         'line end but incomplete: %s, %s'%(line, next))
-                next = next.strip()
                 line += next
         logmsg, res = line.split('INFO:')
         if res == '':
@@ -107,10 +106,14 @@ def collect(indir, r):
         if not os.path.isdir(rundir):
             print 'file: %s in %s'%(d, indir)
             continue
-        config = readconfig(rundir)
-        result = readresult(rundir)
-        config['out.dir'] = str(d)
-        print 'exp=(%s,%s)'%(config, result)
+        try:
+            config = readconfig(rundir)
+            result = readresult(rundir)
+            config['out.dir'] = str(d)
+            print 'exp=(%s,%s)'%(config, result)
+        except:
+            print 'Error in %s'%rundir
+            raise
 
 def main():
     if len(sys.argv) != 3:

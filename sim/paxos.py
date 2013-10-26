@@ -1060,7 +1060,7 @@ def _logIntervalStats(logger, stimes, key):
     logger.info('%s.mean=%s'%(key, numpy.mean(intervals)))
     logger.info('%s.std=%s'%(key, numpy.std(intervals)))
     freqs, bins = numpy.histogram(intervals)
-    logger.info('%s.histo=(%s, %s)'%(key, freqs, bins))
+    logger.info('%s.histo=(%s, %s)'%(key, list(freqs), list(bins)))
     logger.info('%s.count=%s'%(key, len(intervals)))
 
 
