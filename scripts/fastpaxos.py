@@ -7,6 +7,9 @@ import time
 
 from rintvl import RandInterval
 
+from model.ddist import DDist
+from model.protocol import getFPLatencyDist
+
 infinite = sys.maxint
 prevtime = time.time()
 
@@ -307,6 +310,13 @@ def runSingleAcceptorFailRestartNImm(nprop, mean, lcfg, debug=False):
     print 'fail.latency.std=%s'%numpy.std(F)
     print 'fail.latency.histo=(%s, %s)'%numpy.histogram(F)
 
+def runModel(n, mean, lcfg, debug):
+    ddist = DDist.sample(lcfg)
+    lambd = 1.0 / mean
+    eN, res = getFPLatencyDist(n, ddist, lambd)
+    print 'system.num.proposal.mean=%s'%(eN)
+    print 'res.mean=%s'%(res)
+
 def main():
     if len(sys.argv) < 5:
         print
@@ -316,6 +326,7 @@ def main():
         print '                 safri   -- runSingleAcceptorFailRestartInd'
         print '                 safrm   -- runSingleAcceptorFailRestartMax'
         print '                 safrn   -- runSingleAcceptorFailRestartNImm'
+        print '                 rm      -- runModel'
         print
         sys.exit(-1)
     debug = False
@@ -332,6 +343,8 @@ def main():
         runSingleAcceptorFailRestartInd(nprop, mean, lcfg, debug)
     elif key == 'safrn':
         runSingleAcceptorFailRestartNImm(nprop, mean, lcfg, debug)
+    elif key == 'rm':
+        runModel(nprop, mean, lcfg, debug)
     else:
         raise ValueError('unknown key:%s'%key)
 

@@ -327,21 +327,73 @@ def getSLPLatencyDist(n, ddist, lambd):
         rtrip, {'arrival.process' : 'poisson', 'poisson.lambda' : lambd})
     return cond(1.0 / n, delay, ddist + delay), delay, rtrip
 
+#def getFPLatencyDist(n, ddist, lambd):
+#    f = int(np.ceil(n / 3.0) - 1)
+#    rtrip = quorum(n, f, ddist)
+#    #calculate the probability of conflict
+#    #p_c = \int \lambda e^(-\lambda t) [1 - R(t)] dt
+#    #p_c = \int_0^{ub} \lambda e^(-\lambda t) dt - \int_{lb}^{ub} \lambda e^{-lambda t} R(t) dt
+#    pc = 1 - np.exp(-lambd * ddist.ub)
+#    for i in range(ddist.length):
+#        t = ddist.lb + i * ddist.h
+#        pc -= lambd * np.exp(-lambd * t) * ddist.cmfi(i) * ddist.h
+#    pc *= float(n - 1) / n
+#    cRtrip = cond(pc, rtrip + rtrip, rtrip)
+#    return oodelay(
+#        cRtrip, {'arrival.process' : 'poisson', 'poisson.lambda' : lambd}), \
+#            (rtrip.mean, rtrip.std, cRtrip.mean, cRtrip.std)
+
 def getFPLatencyDist(n, ddist, lambd):
     f = int(np.ceil(n / 3.0) - 1)
     rtrip = quorum(n, f, ddist)
-    #calculate the probability of conflict
-    #p_c = \int \lambda e^(-\lambda t) [1 - R(t)] dt
-    #p_c = \int_0^{ub} \lambda e^(-\lambda t) dt - \int_{lb}^{ub} \lambda e^{-lambda t} R(t) dt
-    pc = 1 - np.exp(-lambd * ddist.ub)
-    for i in range(ddist.length):
-        t = ddist.lb + i * ddist.h
-        pc -= lambd * np.exp(-lambd * t) * ddist.cmfi(i) * ddist.h
-    pc *= float(n - 1) / n
-    cRtrip = cond(pc, rtrip + rtrip, rtrip)
-    return oodelay(
-        cRtrip, {'arrival.process' : 'poisson', 'poisson.lambda' : lambd}), \
-            (rtrip.mean, rtrip.std, cRtrip.mean, cRtrip.std)
+    T = rtrip.mean
+    Q = []          #the probabiltiy of system has n proposers
+    CQ0 = [1]       #coefficient of Q interms of Q0
+    sumCQ0 = 1      #the summation of CQ0 and stop condition
+    poisson = [np.exp(-lambd * T)]    #the poisson result
+    factorial=[1]                     #factorial
+    #compute CQ0[1]
+    q1 = (1-np.exp(-lambd * T))/np.exp(-lambd * T)
+    sumCQ0 += q1
+    CQ0.append(q1)
+    #compute Q[curr]
+    #Q[k] = exp(lambd*T)[
+    #       Q[k-1](1-lambd*T*exp(-lambd*T)-
+    #       Q[0]Poisson[k-1]-
+    #       sum_{i=1}^{k-2}Q[i]Poisson[k-i])]
+    curr = 2
+    while True:
+        #compute factorial curr-1
+        factorial.append(factorial[curr-2] * (curr - 1))
+        #compute poisson curr-1
+        poisson.append((lambd * T)**(curr-1)/factorial[curr-1]*np.exp(-lambd * T))
+        #compute the summation
+        s = 0
+        for i in range(1, curr-2+1):
+            s += CQ0[i] * poisson[curr - i]
+        #compute CQ0[curr]
+        q = np.exp(lambd * T) * (CQ0[curr-1]*(1-lambd * T * np.exp(-lambd * T)) - \
+                                 CQ0[0] * poisson[curr-1] - s)
+        CQ0.append(q)
+        #stop condition
+        sumCQ0 += q
+        if q / sumCQ0 < 1e-5:
+            break
+        curr += 1
+    #normalize CQ0
+    CQ = []
+    for q in CQ0:
+        CQ.append(q / sumCQ0)
+    #compute average number of proposers
+    eN = 0
+    for i, p in enumerate(CQ):
+        eN += i * p
+    #compute average serving time
+    res = eN / lambd
+    #debug
+    print 'factorial', factorial[0:10]
+    print 'poisson', poisson[0:10]
+    return eN, res
 
 def getEPLatencyDist(n, ddist, sync, elen):
     f = int(np.ceil(n / 2.0) - 1)
