@@ -10,6 +10,7 @@ import matplotlib.pylab as plt
 from model.ddist import DDist
 from model.protocol import getSLPLatencyDist
 from model.protocol import getEPLatencyDist
+from model.protocol import getFPLatencyDist
 
 DDists = { }
 
@@ -110,15 +111,42 @@ def validate(params):
             epData['res'].x.append(arrmean)
             epData['res'].y.append(resS / resM.mean)
             print 'ep', resS / resM.mean, resS
+        elif 'fpdetmn' in config['system.impl']:
+            print ('networkcfg=%s, n=%s, arr.per.node.mean=%s'
+                   %(networkcfg, n, arrmean))
+            #model
+            try:
+                eN, resM = getFPLatencyDist(n, ddist, lambd)
+                print 'eN=%s, res=%s'%(eN, resM)
+            except ValueError as e:
+                print e
+            #sim
+            frateS = result['paxos.propose.fail.ratio']
+            ntriesS = result['paxos.ntries.time.mean']
+            ftimeS = result['paxos.propose.fail.time.mean']
+            crateS = result['paxos.collision.ratio']
+            stimeS = result['paxos.propose.succ.time.mean']
+            ttimeS = result['paxos.propose.total.time.mean']
+            odelayS = result['order.consensus.time.mean']
+            resS = result['res.mean']
+            print ('arrmean=%s, ncfg=%s, frate=%s, ntries=%s, ftime=%s, '
+                   'crate=%s, stime=%s, ttime=%s, odelay=%s, res=%s'
+                   %(arrmean, networkcfg, frateS, ntriesS, ftimeS,
+                     crateS, stimeS, ttimeS, odelayS, resS))
+            print
         else:
             continue
     for key, val in splData.iteritems():
+        if len(val.x) == 0 and len(val.y) == 0:
+            continue
         fig = plt.figure()
         axes = fig.add_subplot(111)
         #axes.plot(val.x, val.y, '.r')
         axes.plot(val.y, '.r')
         fig.savefig('tmp/%s_%s.pdf'%('vpaxos_vspl', key))
     for key, val in epData.iteritems():
+        if len(val.x) == 0 and len(val.y) == 0:
+            continue
         fig = plt.figure()
         axes = fig.add_subplot(111)
         #axes.plot(val.x, val.y, '.r')
