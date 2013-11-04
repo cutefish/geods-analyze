@@ -348,7 +348,7 @@ def getFPLatencyDist(n, ddist, lambd):
     rtrip = quorum(n, f, ddist)
     T = rtrip.mean
     if 1.1 * lambd * T > 1:
-        raise ValueError('1/lambda = %s < 1.5 * %s = 1.5T'%(1.0 / lambd, T))
+        raise ValueError('1/lambda = %s < 1.1 * %s = 1.1T'%(1.0 / lambd, T))
     Q = []          #the probabiltiy of system has n proposers
     CQ0 = [1]       #coefficient of Q interms of Q0
     sumCQ0 = 1      #the summation of CQ0 and stop condition

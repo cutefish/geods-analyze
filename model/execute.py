@@ -3,11 +3,18 @@ import scipy.misc
 def calcNDetmnExec(n, m, k, s, c):
     n, m, k, s, c = map(float, (n, m, k, s, c))
     g = c / s
-    pc = k / 2 * (k + 2 * g) / (k + g) * m / n
+    na = k / 2 * (k + 2 * g) / (k + g)
+    #na = k / 2
+    nb = k / 3
+    pc = na * m / n
+    #print 'pc1', pc, n, m, k, s, c
     A = (k / 3 + g) / (k + g)
     alpha = pc * k * A
-    nl = (1 - alpha) * m * k / 2 + alpha * m * k / 3
-    pc = nl / n
+    nl = (1 - alpha) * na + alpha * nb
+    #nl = (1 - alpha) * k / 2 + alpha * k / 3
+    #pc = nl * m / n
+    #print 'pc2', pc, n, m, k, s, c, alpha
+    #assert abs(alpha) < 1, (n, m, k, s, c, alpha)
 
     h1 = 1.0 / 3 * k * s + g * s
     ph2 = alpha * m * k / 3 / nl
