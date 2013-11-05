@@ -9,6 +9,7 @@ import matplotlib.pylab as plt
 
 from model.ddist import DDist
 from model.execute import calcNDetmnExec
+from model.execute import calcDetmnExec
 from model.protocol import getSLPLatencyDist
 from model.protocol import getEPLatencyDist
 from model.protocol import getFPLatencyDist
@@ -92,7 +93,7 @@ class DataPoints(object):
 
 def validate_nd(params):
     data = {}
-    keys = ['pc', 'pd', 'ws', 'res', 'load']
+    keys = ['ps', 'ws', 'res', 'load']
     for key in keys:
         data[key] = DataPoints()
     for i, param in enumerate(params):
@@ -110,25 +111,23 @@ def validate_nd(params):
         #if n != 16384 or m != 12 or k != 8 or s != 10:
         #    continue
         #model
-        pcM, pdM, wsM, resM, beta = calcNDetmnExec(n, m, k, s, g)
+        psM, pdM, wsM, resM, beta = calcNDetmnExec(n, m, k, s, g)
         #sim
-        pcR = result['lock.block.prob']
-        pdR = result['abort.deadlock.prob']
-        wsR = result['lock.block.time.mean']
-        resR = result['res.mean']
-        lR = result['load.mean']
+        psS = result['lock.block.prob']
+        pdS = result['abort.deadlock.prob']
+        wsS = result['lock.block.time.mean']
+        resS = result['res.mean']
+        lS = result['load.mean']
         #data
-        #err = abs(pcM - pcR) / pcM
-        data['pc'].add(n, pcR / pcM)
-        print pcR / pcM
-        err = abs(pdM - pdR) / pdM
-        data['pd'].add(pcR, err)
-        err = abs(wsM - wsR) / wsM
-        data['ws'].add(pcR, err)
-        err = abs(resM - resR) / resM
-        data['res'].add(pcR, resR)
-        err = abs(m - lR) / m
-        data['load'].add(pcR, err)
+        def getError(m, s):
+            if s == 0:
+                return 0
+            return (s - m) / s
+        data['ps'].add(beta, getError(psM, psS))
+        #data['pd'].add(beta, getError(pdM, pdS))
+        data['ws'].add(beta, getError(wsM, wsS))
+        data['res'].add(beta, getError(resM, resS))
+        data['load'].add(beta, getError(m, lS))
     for key in keys:
         fig = plt.figure()
         axes = fig.add_subplot(111)
@@ -138,6 +137,49 @@ def validate_nd(params):
             fig.savefig('tmp/validate_nd.pdf')
         else:
             fig.savefig('tmp/validate_nd_%s.pdf'%key)
+
+def validate_de(params):
+    data = {}
+    keys = ['pt', 'a', 'h', 'wt', 'res', 'load']
+    for key in keys:
+        data[key] = DataPoints()
+    for i, param in enumerate(params):
+        config, result = param
+        if not 'cdetmn' in config['system.impl']:
+            continue
+        m = config['max.num.txns.in.system']
+        k = config['nwrites']
+        n = config['dataset.groups'][1]
+        s = config['intvl']
+        #model
+        ptM, aM, hM, wtM, resM, beta = calcDetmnExec(n, m, k, s)
+        #sim
+        ptS = result['lock.block.prob']
+        aS = m - result['num.blocking.txns.mean']
+        hS = result['block.height.cond.mean']
+        wtS = result['lock.block.time.mean']
+        lS = result.get('load.mean', m)
+        resS = result['res.mean']
+        #data
+        def getError(m, s):
+            if s == 0:
+                return 0
+            return (s - m) / s
+        data['pt'].add(beta, getError(ptM, ptS))
+        data['a'].add(beta, getError(aM, aS))
+        data['h'].add(beta, getError(hM, hS))
+        data['wt'].add(beta, getError(wtM, wtS))
+        data['res'].add(beta, getError(resM, resS))
+        data['load'].add(beta, getError(m, lS))
+    for key in keys:
+        fig = plt.figure()
+        axes = fig.add_subplot(111)
+        x, y = data[key].get()
+        axes.plot(x, y, '+')
+        if key == 'res':
+            fig.savefig('tmp/validate_de.pdf')
+        else:
+            fig.savefig('tmp/validate_de_%s.pdf'%key)
 
 def validate_sp(params):
     data = {}
@@ -295,6 +337,8 @@ def main():
             validate_ep(params)
         elif key == 'nd':
             validate_nd(params)
+        elif key == 'de':
+            validate_de(params)
         else:
             print 'key error: %s'%key
 

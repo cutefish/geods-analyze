@@ -1,34 +1,49 @@
 import scipy.misc
 
+def calcNDetmnWait(k, g, s, u):
+    numerator = k * s * (3 * g**2 * s + 3 * g * k * s + 3 * g * k * u +
+                         3 * g * s - 3 * g * u + k**2 * s + k**2 * u +
+                         3 * k * s + 2 * s - u)
+    denominator = 3 * k * ((k + 1 + 2*g) * s + (k - 1) * u)
+    return numerator / denominator
+
 def calcNDetmnExec(n, m, k, s, g):
     n, m, k, s, c = map(float, (n, m, k, s, g))
-    na = k / 2 * (k + 2 * g) / (k + g)
-    #na = k / 2
-    nb = k / 2
-    pc = na * (m - 1) / n
-    return pc, 1, 1, 1, 1
-    #print 'pc1', pc, n, m, k, s, c
+    la = k / 2 * (k + 2 * g) / (k + g)
+    lb = k / 2
+    L = la * (m - 1)
+    #L = n * (1 - (1 - 1.0 / n)**((m-1) * lb))
+    ps = L / n
+    u = ps * k * g * s / 2
+    w1 = calcNDetmnWait(k, g, s, u)
+    ws = w1
+    pt = 1 - (1 - ps)**k
+    pd = (pt / (m - 1))**2 * (m - 1)
+    res = ((k + g) * s + ps * k * ws) * (1 + 2 * pd)
+    beta = ps * k * ws / res
+    return ps, pd, ws, res, beta
+    #print 'ps1', ps, n, m, k, s, c
     #A = (k / 3 + g) / (k + g)
-    #alpha = pc * k * A
+    #alpha = ps * k * A
     #nl = (1 - alpha) * na + alpha * nb
     ##nl = (1 - alpha) * k / 2 + alpha * k / 3
-    ##pc = nl * m / n
-    ##print 'pc2', pc, n, m, k, s, c, alpha
+    ##ps = nl * m / n
+    ##print 'ps2', ps, n, m, k, s, c, alpha
     ##assert abs(alpha) < 1, (n, m, k, s, c, alpha)
 
     #h1 = 1.0 / 3 * k * s + g * s
     #ph2 = alpha * m * k / 3 / nl
     #d = nl / ((1 - alpha) * m * k / 2)
-    #h2 = 1.0 / 3 * k * s + pc * k * h1 + g * s
+    #h2 = 1.0 / 3 * k * s + ps * k * h1 + g * s
     #ph3 = alpha * m / nl
-    #h3 = 1.0 / 2 * k * s + pc * k * h1 + g * s
+    #h3 = 1.0 / 2 * k * s + ps * k * h1 + g * s
     #w = h1 + ph2 * h2 + ph3 * h3
 
-    #pd = pc / m * alpha
-    #res = (k * s + pc * k * w + g * s) * (1 + 2 * pd)
+    #pd = ps / m * alpha
+    #res = (k * s + ps * k * w + g * s) * (1 + 2 * pd)
     #beta = w / res
 
-    #return pc, pd, w, res, beta
+    #return ps, pd, w, res, beta
 
 def calcDetmnExec(n, m, k, s):
     n, m, k, s = map(float, (n, m, k, s))
