@@ -1,5 +1,3 @@
-import scipy.misc
-
 def calcNDetmnWait(k, g, s, u):
     numerator = k * s * (3 * g**2 * s + 3 * g * k * s + 3 * g * k * u +
                          3 * g * s - 3 * g * u + k**2 * s + k**2 * u +
@@ -8,9 +6,16 @@ def calcNDetmnWait(k, g, s, u):
     return numerator / denominator
 
 def calcNDetmnExec(n, m, k, s, g):
+    """
+        n   --  total number of locks
+        m   --  max number of txns
+        k   --  number of locks each txn
+        s   --  lock step overhead
+        g   --  commit time / s
+    """
     n, m, k, s, c = map(float, (n, m, k, s, g))
     la = k / 2 * (k + 2 * g) / (k + g)
-    lb = k / 2
+    #lb = k / 2
     L = la * (m - 1)
     #L = n * (1 - (1 - 1.0 / n)**((m-1) * lb))
     ps = L / n
@@ -46,20 +51,26 @@ def calcNDetmnExec(n, m, k, s, g):
     #return ps, pd, w, res, beta
 
 def calcDetmnExec(n, m, k, s):
+    """
+        n   --  total number of locks
+        m   --  max number of txns
+        k   --  number of locks each txn
+        s   --  lock step overhead
+    """
     n, m, k, s = map(float, (n, m, k, s))
     pt = 1 - ((n - (m - 1)*k) / n)**k
     p = 1 - ((n - k) / n)**k
-    nr = (1 - (1 - p)**m) / p
+    a = (1 - (1 - p)**m) / p
     #h = (m - 1) / ((1 - (1 - p)**(m - 1)) / p)
-    h = m / ((1 - (1 - p)**(m - 1)) / p)
+    h = (m - 1) / a
     #h = (m - 1) * p + 1
     #h = 0
     #for i in range(0, int(m - 1)):
     #    h += i * scipy.misc.comb(m - 2, i) * p**i * (1 - p)**(m - 2 - i)
     #h = h + 1
-    w = (p * 1 + (1 - p) * 0.5 + h - 1) * k * s
-    res = k * s + pt * w
-    beta = pt * w / res
-    return pt, nr, h, w, res, beta
+    wt = (p * 1 + (1 - p) * 0.5 + h - 1) * k * s
+    res = k * s + pt * wt
+    beta = pt * wt / res
+    return pt, a, h, wt, res, beta
 
 
