@@ -40,7 +40,7 @@ def calcNDetmnSystem(n, k, s, l, q, c):
         if abs(resp - resc) < THRESHOLD:
             break
         resp = resc
-    return resc + c, m, count
+    return resc + c, m, count, (ps, pd, ws, beta)
 
 def calcDetmnSystem(n, k, s, l, p):
     """
@@ -68,7 +68,7 @@ def calcDetmnSystem(n, k, s, l, p):
         if abs(resp - resc) < THRESHOLD:
             break
         resp = resc
-    return resc + p, m, count
+    return resc + p, m, count, (pt, a, h, wt, beta)
 
 def main():
     if len(sys.argv) != 3:

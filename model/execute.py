@@ -5,7 +5,7 @@ def calcNDetmnWait(k, g, s, u):
     denominator = 3 * k * ((k + 1 + 2*g) * s + (k - 1) * u)
     return numerator / denominator
 
-def calcNDetmnExec(n, m, k, s, g):
+def calcNDetmnExec(n, m, k, s, g, iterative=False):
     """
         n   --  total number of locks
         m   --  max number of txns
@@ -15,17 +15,34 @@ def calcNDetmnExec(n, m, k, s, g):
     """
     n, m, k, s, c = map(float, (n, m, k, s, g))
     la = k / 2 * (k + 2 * g) / (k + g)
-    #lb = k / 2
-    L = la * (m - 1)
-    #L = n * (1 - (1 - 1.0 / n)**((m-1) * lb))
+    lb = k / 2
+    L = n * (1 - (1 - 1.0 / n)**((m - 1) * la))
     ps = L / n
     u = ps * k * g * s / 2
     w1 = calcNDetmnWait(k, g, s, u)
-    ws = w1
+    alpha = ps * k * w1 / ((k + g) * s + ps * k * w1)
+    ws = w1 * (1 + 1.0 / 2 * alpha**2 / (1 - alpha))
     pt = 1 - (1 - ps)**k
-    pd = (pt / (m - 1))**2 * (m - 1)
+    pd = pt / (m - 1)
     res = ((k + g) * s + ps * k * ws) * (1 + 2 * pd)
     beta = ps * k * ws / res
+    wsp = ws
+    betap = beta
+    while iterative:
+        L = n * (1 - (1 - 1.0 / n)**((m - 1) * ((1 - betap) * la + betap * lb)))
+        ps = L / n
+        u = ps * k * wsp
+        w1 = calcNDetmnWait(k, g, s, u)
+        #ws = w1 * (1 + 0.5 * betap * (1 + betap) / (1 - betap)**2)
+        #ws = w1 * (1 + 0.5 * betap + 1.5 * betap**2 + 2.5 * betap**3)
+        ws = w1 * (1 + betap / (1 - betap))
+        pd = ps / (m - 1) * betap
+        res = ((k + g) * s + ps * k * ws) * (1 + 2 * pd)
+        beta = ps * k * ws / res
+        if abs(beta - betap) < 1e-3:
+            break
+        wsp = ws
+        betap = beta
     return ps, pd, ws, res, beta
     #print 'ps1', ps, n, m, k, s, c
     #A = (k / 3 + g) / (k + g)
@@ -58,7 +75,8 @@ def calcDetmnExec(n, m, k, s):
         s   --  lock step overhead
     """
     n, m, k, s = map(float, (n, m, k, s))
-    pt = 1 - ((n - (m - 1)*k) / n)**k
+    l = n * (1 - (1 - 1.0 / n)**((m - 1)* k))
+    pt = 1 - ((n - l) / n)**k
     p = 1 - ((n - k) / n)**k
     a = (1 - (1 - p)**m) / p
     #h = (m - 1) / ((1 - (1 - p)**(m - 1)) / p)

@@ -2,7 +2,6 @@ import random
 import sys
 
 import numpy as np
-import scipy as sp
 import matplotlib
 matplotlib.use('pdf')
 import matplotlib.pylab as plt
@@ -10,9 +9,14 @@ import matplotlib.pylab as plt
 from model.ddist import DDist
 from model.execute import calcNDetmnExec
 from model.execute import calcDetmnExec
+from model.protocol import quorum
 from model.protocol import getSLPLatencyDist
 from model.protocol import getEPLatencyDist
 from model.protocol import getFPLatencyDist
+from model.system import calcNDetmnSystem
+from model.system import calcDetmnSystem
+from model.system import ExceedsCountMaxException
+from model.system import NotConvergeException
 
 DDists = { }
 
@@ -50,6 +54,16 @@ def getDDist(config):
         DDists[ddistkey] = DDist.sample(config, h=0.5)
     return DDists[ddistkey]
 
+def getQuorum(n, f, ddist):
+    if (n, f, ddist) not in DDists:
+        DDists[(n, f, ddist)] = quorum(n, f, ddist)
+    return DDists[(n, f, ddist)]
+
+def getSLPL(z, ddist, lambd):
+    if (z, ddist, lambd) not in DDists:
+        DDists[(z, ddist, lambd)] = getSLPLatencyDist(z, ddist, lambd)[0].mean
+    return DDists[z, ddist, lambd]
+
 paxoskeys = [
     'paxos.propose.total.time',
     'paxos.propose.fail.time',
@@ -68,7 +82,7 @@ class DataPoints(object):
         self.y.append(y)
 
     def addY(self, y):
-        self.x.append(len(x))
+        self.x.append(len(self.x))
         self.y.append(y)
 
     def get(self, ymap=()):
@@ -123,17 +137,19 @@ def validate_nd(params):
             if s == 0:
                 return 0
             return (s - m) / s
-        data['ps'].add(beta, getError(psM, psS))
+        data['ps'].add(psS, getError(psM, psS))
         #data['pd'].add(beta, getError(pdM, pdS))
-        data['ws'].add(beta, getError(wsM, wsS))
-        data['res'].add(beta, getError(resM, resS))
-        data['load'].add(beta, getError(m, lS))
+        data['ws'].add(psS, getError(wsM, wsS))
+        data['res'].add(psS, getError(resM, resS))
+        data['load'].add(psS, getError(m, lS))
     for key in keys:
         fig = plt.figure()
         axes = fig.add_subplot(111)
         x, y = data[key].get()
         axes.plot(x, y, '+')
+        axes.set_xlabel('Probability of Blocking Per Step')
         if key == 'res':
+            axes.set_ylabel('Error Rate')
             fig.savefig('tmp/validate_nd.pdf')
         else:
             fig.savefig('tmp/validate_nd_%s.pdf'%key)
@@ -165,18 +181,20 @@ def validate_de(params):
             if s == 0:
                 return 0
             return (s - m) / s
-        data['pt'].add(beta, getError(ptM, ptS))
-        data['a'].add(beta, getError(aM, aS))
-        data['h'].add(beta, getError(hM, hS))
-        data['wt'].add(beta, getError(wtM, wtS))
-        data['res'].add(beta, getError(resM, resS))
-        data['load'].add(beta, getError(m, lS))
+        data['pt'].add(ptS, getError(ptM, ptS))
+        data['a'].add(ptS, getError(aM, aS))
+        data['h'].add(ptS, getError(hM, hS))
+        data['wt'].add(ptS, getError(wtM, wtS))
+        data['res'].add(ptS, getError(resM, resS))
+        data['load'].add(ptS, getError(m, lS))
     for key in keys:
         fig = plt.figure()
         axes = fig.add_subplot(111)
         x, y = data[key].get()
         axes.plot(x, y, '+')
+        axes.set_xlabel('Probability of Blocking Each Txn')
         if key == 'res':
+            axes.set_ylabel('Error Rate')
             fig.savefig('tmp/validate_de.pdf')
         else:
             fig.savefig('tmp/validate_de_%s.pdf'%key)
@@ -312,6 +330,130 @@ def validate_fp(params):
     axes.set_xlabel('Occupancy $\lambda T$')
     fig.savefig('tmp/validate_fp.pdf')
 
+def validate_ndsys(params):
+    data = {}
+    keys = ['res', 'm']
+    data['res'] = DataPoints()
+    data['m'] = DataPoints()
+    for i, param in enumerate(params):
+        config, result = param
+        if not 'mstdylock' in config['system.impl']:
+            continue
+        network = config['nw.latency.cross.zone']
+        ddist = getDDist(network)
+        z = config['num.zones']
+        arrive = config['txn.arrive.interval.dist']
+        arrkey, arrmean = arrive
+        lambd = 1.0 / arrmean * z
+        txncfg = config['txn.classes'][0]
+        n = config['dataset.groups'][1]
+        k = txncfg['nwrites']
+        s = txncfg['action.intvl.dist'][1]
+        l = lambd
+        f = int(np.ceil(z / 2.0) - 1)
+        q = getQuorum(z, f, ddist).mean
+        c = float(z - 1) / z * ddist.mean
+        print n, k, s, l, ddist.mean
+        #sim
+        resS = result['res.mean']
+        mS = result['load.mean']
+        print resS, mS
+        #model
+        try:
+            resM, mM, count, params = calcNDetmnSystem(n, k, s, l, q, c)
+        except ExceedsCountMaxException as e:
+            resM, mM, count = e.args
+            print 'Exceeds COUNT_MAX, res=%s, m=%s, count=%s'%(resM, mM, count)
+            continue
+        except NotConvergeException as e:
+            resM, mM, count = e.args
+            print 'Not converge, res=%s, m=%s, count=%s'%(resM, mM, count)
+            continue
+        print resM, mM
+        print k * s + q + c
+        #data
+        def getError(m, s):
+            if s == 0:
+                return 0
+            return (s - m) / s
+        data['res'].add(ddist.mean, resM)
+        data['res'].add(ddist.mean, resS)
+        #print getError(resM, resS)
+        data['m'].add(ddist.mean, getError(mM, mS))
+    def getM(array):
+        return array[0]
+    def getS(array):
+        return array[1]
+    for key in keys:
+        fig = plt.figure()
+        axes = fig.add_subplot(111)
+        if key == 'res':
+            x, y = data[key].get(ymap=(getM, getS))
+            ym, ys = y
+            axes.plot(x, ym, '+b-')
+            axes.plot(x, ys, 'ro')
+            axes.set_xlabel('Average Network Latency')
+            axes.set_ylabel('Response Time')
+            fig.savefig('tmp/validate_ndsys.pdf')
+
+def validate_desys(params):
+    data = {}
+    data['res'] = DataPoints()
+    data['m'] = DataPoints()
+    keys = ['res', 'm']
+    for i, param in enumerate(params):
+        config, result = param
+        if not 'slpdetmn' in config['system.impl']:
+            continue
+        network = config['nw.latency.cross.zone']
+        ddist = getDDist(network)
+        z = config['num.zones']
+        arrive = config['txn.arrive.interval.dist']
+        arrkey, arrmean = arrive
+        lambd = 1.0 / arrmean * z
+        txncfg = config['txn.classes'][0]
+        n = config['dataset.groups'][1]
+        k = txncfg['nwrites']
+        s = txncfg['action.intvl.dist'][1]
+        l = lambd
+        p = getSLPL(z, ddist, lambd)
+        print n, k, s, l, p
+        #sim
+        resS = result['res.mean']
+        mS = result['load.mean']
+        print resS, mS
+        #model
+        try:
+            resM, mM, count, params = calcDetmnSystem(n, k, s, l, p)
+        except ExceedsCountMaxException as e:
+            resM, mM, count = e.args
+            print 'Exceeds COUNT_MAX, res=%s, m=%s, count=%s'%(resM, mM, count)
+            continue
+        except NotConvergeException as e:
+            resM, mM, count = e.args
+            print 'Not converge, res=%s, m=%s, count=%s'%(resM, mM, count)
+            continue
+        print resM, mM, count
+        print p + k * s
+        #data
+        def getError(m, s):
+            if s == 0:
+                return 0
+            return (s - m) / s
+        data['res'].add(ddist.mean, getError(resM, resS))
+        data['m'].add(ddist.mean, getError(mM, mS))
+    for key in keys:
+        fig = plt.figure()
+        axes = fig.add_subplot(111)
+        x, y = data[key].get()
+        axes.plot(x, y, '+')
+        axes.set_xlabel('Average Network Latency')
+        axes.set_ylabel('Error Rate')
+        if key == 'res':
+            fig.savefig('tmp/validate_desys.pdf')
+        else:
+            fig.savefig('tmp/validate_desys_%s.pdf'%key)
+
 def main():
     if len(sys.argv) != 3:
         print 'validate <key> <result file>'
@@ -339,6 +481,10 @@ def main():
             validate_nd(params)
         elif key == 'de':
             validate_de(params)
+        elif key == 'ndsys':
+            validate_ndsys(params)
+        elif key == 'desys':
+            validate_desys(params)
         else:
             print 'key error: %s'%key
 
