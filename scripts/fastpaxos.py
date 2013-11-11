@@ -313,7 +313,7 @@ def runSingleAcceptorFailRestartNImm(nprop, mean, lcfg, debug=False):
 def runModel(n, mean, lcfg, debug):
     ddist = DDist.sample(lcfg)
     lambd = 1.0 / mean
-    eN, res = getFPLatencyDist(n, ddist, lambd)
+    res, eN = getFPLatencyDist(n, ddist, lambd)
     print 'system.num.proposal.mean=%s'%(eN)
     print 'res.mean=%s'%(res)
 

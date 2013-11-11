@@ -1,15 +1,38 @@
+import math
 import sys
 
 import matplotlib
 matplotlib.use('pdf')
 import matplotlib.pylab as plt
 
+from model.ddist import DDist
 from model.execute import calcNDetmnExec
 from model.execute import calcDetmnExec
+from model.protocol import getSLPLatencyDist
+from model.protocol import getFPLatencyDist
+from model.protocol import getEPLatencyDist
 from model.system import calcNDetmnSystem
 from model.system import calcDetmnSystem
 from model.system import ExceedsCountMaxException
 from model.system import NotConvergeException
+
+DDists = { }
+
+def getDDist(config):
+    try:
+        key, mean, cfg = config
+    except:
+        key, mean = config
+        cfg = {}
+    strings = []
+    strings.append(str(key))
+    strings.append(str(mean))
+    for key, val in cfg.iteritems():
+        strings.append('%s=%s'%(key, val))
+    ddistkey = ' '.join(strings)
+    if ddistkey not in DDists:
+        DDists[ddistkey] = DDist.sample(config, h=1.0)
+    return DDists[ddistkey]
 
 class DataPoints(object):
     def __init__(self):
@@ -136,7 +159,10 @@ def show_execm(n, k, s, lmeans):
             x, y = lines[syskey][mkey].get()
             line, = axes.plot(x, y, marker=markers[syskey], linestyle=linestyles[mkey],
                               color=colors[mkey])
-            legend_labels.append('%s, %s'%(syskey, mkey))
+            if mkey == 'capacity':
+                legend_labels.append('%s, %s'%(syskey, 'Num Txns in System'))
+            else:
+                legend_labels.append('%s, %s'%(syskey, 'Peak Throughput'))
             legend_lines.append(line)
     axes.set_xlabel('Average Network Latency')
     axes.set_ylabel('Max Number of Transactions')
@@ -200,6 +226,145 @@ def show_mres(n, k, s, lmeans):
     axes.legend(legend_lines, legend_labels, loc='upper left')
     fig.savefig('tmp/show_mres.pdf')
 
+def show_spvsep(n, elen, mean, lb, ub, sigmas, lambds):
+    lines = {}
+    keys = ['sp', 'ep']
+    ddists = []
+    sync = getDDist(('fixed', 0))
+    for sigma in sigmas:
+        ddists.append(
+            getDDist(('lognorm', -1,
+                      {'mu' : math.log(mean) - sigma**2 / 2,
+                       'sigma' : sigma, 'lb' : lb, 'ub' : ub})))
+    for lambd in lambds:
+        for syskey in keys:
+            if lambd not in lines:
+                lines[lambd] = {}
+            lines[lambd][syskey] = DataPoints()
+    #compute
+    for lambd in lambds:
+        for ddist in ddists:
+            res, delay, rtrip = getSLPLatencyDist(n, ddist, lambd)
+            lines[lambd]['sp'].add(ddist.std / ddist.mean, res.mean)
+            print 'sp', res.mean
+            res, delay, rtrip = getEPLatencyDist(n, ddist, sync, elen)
+            lines[lambd]['ep'].add(ddist.std / ddist.mean, res.mean)
+            print 'ep', res.mean
+    #plot
+    fig = plt.figure()
+    axes = fig.add_subplot(111)
+    legend_labels = []
+    legend_lines = []
+    markers = {'sp': '^', 'ep':'o'}
+    defaultLinestyles = ['-', '--', '-.', ':']
+    linestyles = {}
+    for i, lambd in enumerate(lambds):
+        linestyles[lambd] = defaultLinestyles[i]
+    defaultColors = ['b', 'r', 'g', 'k']
+    colors = {}
+    for i, lambd in enumerate(lambds):
+        colors[lambd] = defaultColors[i]
+    for key in keys:
+        for lambd in lambds:
+            x, y = lines[lambd][key].get()
+            line, = axes.plot(x, y, marker=markers[key], linestyle=linestyles[lambd],
+                              color=colors[lambd])
+            legend_labels.append('%s, $\lambda=%s$'%(key, lambd))
+            legend_lines.append(line)
+    axes.set_xlabel('Network Latency Standard Deviation / Average Network Latency')
+    axes.set_ylabel('Response Time')
+    axes.legend(legend_lines, legend_labels, loc='upper left')
+    fig.savefig('tmp/show_spvsep.pdf')
+
+def show_spvsfp(n, m, s, lb, ub, lambds):
+    lines = {}
+    keys = ['sp', 'fp']
+    ddist = getDDist(('lognorm', -1,
+                      {'mu' : math.log(m) - s**2 / 2,
+                       'sigma' : s, 'lb' : lb, 'ub' : ub}))
+    for syskey in keys:
+        lines[syskey] = DataPoints()
+    #compute
+    for lambd in lambds:
+        res, delay, rtrip = getSLPLatencyDist(n, ddist, lambd)
+        lines['sp'].add(lambd * 2 * m, res.mean)
+        print 'sp', res.mean
+        res, eN = getFPLatencyDist(n, ddist, lambd)
+        lines['fp'].add(lambd * 2 * m, res)
+        print 'fp', res
+    #plot
+    fig = plt.figure()
+    axes = fig.add_subplot(111)
+    legend_labels = []
+    legend_lines = []
+    markers = {'sp': '^', 'fp':'o'}
+    for key in keys:
+        x, y = lines[key].get()
+        line, = axes.plot(x, y, marker=markers[key], linestyle='-', color='r')
+        legend_labels.append('%s'%(key))
+        legend_lines.append(line)
+    axes.set_xlabel(r'Arrival Rate $\times$ Average Round Trip Latency')
+    axes.set_ylabel('Response Time')
+    axes.legend(legend_lines, legend_labels, loc='upper left')
+    fig.savefig('tmp/show_spvsfp.pdf')
+
+def show_epelen(n, mean, lb, ub, sigmas, elens):
+    lines = {}
+    ddists = []
+    sync = getDDist(('fixed', 0))
+    for sigma in sigmas:
+        lines[sigma] = DataPoints()
+    for sigma in sigmas:
+        ddists.append(
+            getDDist(('lognorm', -1,
+                      {'mu' : math.log(mean) - sigma**2 / 2,
+                       'sigma' : sigma, 'lb' : lb, 'ub' : ub})))
+    #compute
+    for elen in elens:
+        for i, ddist in enumerate(ddists):
+            res, delay, rtrip = getEPLatencyDist(n, ddist, sync, elen)
+            lines[sigmas[i]].add(elen, res.mean)
+            print 'ep', res.mean
+    #plot
+    fig = plt.figure()
+    axes = fig.add_subplot(111)
+    legend_labels = []
+    legend_lines = []
+    defaultMarkers = ['^', 'o', 's', 'x']
+    markers = {}
+    for i, sigma in enumerate(sigmas):
+        markers[sigma] = defaultMarkers[i]
+    for i, sigma in enumerate(sigmas):
+        x, y = lines[sigma].get()
+        line, = axes.plot(x, y, marker=markers[sigma], linestyle='-', color='r')
+        legend_labels.append('Network STD =%.2f'%(ddists[i].std))
+        legend_lines.append(line)
+    axes.set_xlabel('Epoch Length')
+    axes.set_ylabel('Response Time')
+    axes.legend(legend_lines, legend_labels, loc='lower right')
+    fig.savefig('tmp/show_epelen.pdf')
+
+def show_epsynch(n, elen, mean, sigma, lb, ub, synchubs):
+    lines = {}
+    lines['synch'] = DataPoints()
+    ddist = getDDist(('lognorm', -1,
+                      {'mu' : math.log(mean) - sigma**2 / 2,
+                       'sigma' : sigma, 'lb' : lb, 'ub' : ub}))
+    #compute
+    for synchub in synchubs:
+        sync = getDDist(('uniform', -1, {'lb':0, 'ub':synchub}))
+        res, delay, rtrip = getEPLatencyDist(n, ddist, sync, elen)
+        lines['synch'].add(synchub, res.mean)
+        print 'ep', res.mean
+    #plot
+    fig = plt.figure()
+    axes = fig.add_subplot(111)
+    x, y = lines['synch'].get()
+    line, = axes.plot(x, y, marker='^', linestyle='-', color='r')
+    axes.set_xlabel('Time Drift Upper Bound')
+    axes.set_ylabel('Response Time')
+    fig.savefig('tmp/show_epsynch.pdf')
+
 def main():
     if len(sys.argv) != 3:
         print 'show <key> <args>'
@@ -238,6 +403,50 @@ def main():
             print 'Args <n; k; s; [lmeans]>. \n\tGot: %s.'%args
             sys.exit(-1)
         show_mres(n, k, s, lmeans)
+    elif key == 'spvsep':
+        try:
+            n, e, m, lb, ub, sigmas, lambds = args.split(';')
+            n = int(n)
+            e, m, lb, ub = map(float, (e, m, lb, ub))
+            sigmas, lambds = map(eval, (sigmas, lambds))
+        except Exception as e:
+            print 'Error: %s'%e
+            print 'Args <n; elen; mu; lb; ub; [sigmas]; [lambds]>. \n\tGot: %s.'%args
+            sys.exit(-1)
+        show_spvsep(n, e, m, lb, ub, sigmas, lambds)
+    elif key == 'spvsfp':
+        try:
+            n, m, s, lb, ub, lambds = args.split(';')
+            n = int(n)
+            m, s, lb, ub = map(float, (m, s, lb, ub))
+            lambds = eval(lambds)
+        except Exception as e:
+            print 'Error: %s'%e
+            print 'Args <n; m; s; lb; ub; [lambds]>. \n\tGot: %s.'%args
+            sys.exit(-1)
+        show_spvsfp(n, m, s, lb, ub, lambds)
+    elif key == 'epelen':
+        try:
+            n, m, lb, ub, sigmas, elens = args.split(';')
+            n = int(n)
+            m, lb, ub = map(float, (m, lb, ub))
+            sigmas, elens = map(eval, (sigmas, elens))
+        except Exception as e:
+            print 'Error: %s'%e
+            print 'Args <n; m; lb; ub; [sigmas]; [elens]>. \n\tGot: %s.'%args
+            sys.exit(-1)
+        show_epelen(n, m, lb, ub, sigmas, elens)
+    elif key == 'epsynch':
+        try:
+            n, elen, m, s, lb, ub, synchubs = args.split(';')
+            n = int(n)
+            elen, m, s, lb, ub = map(float, (elen, m, s, lb, ub))
+            synchubs = eval(synchubs)
+        except Exception as e:
+            print 'Error: %s'%e
+            print 'Args <n; m; s; lb; ub; [synchubs]>. \n\tGot: %s.'%args
+            sys.exit(-1)
+        show_epsynch(n, elen, m, s, lb, ub, synchubs)
     else:
         print 'key error: %s'%key
 

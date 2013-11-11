@@ -309,7 +309,7 @@ def validate_fp(params):
         rho = config['arrfactor']   #1 / \lambda T
         #model
         try:
-            eNM, resM = getFPLatencyDist(n, ddist, lambd)
+            resM, eNM = getFPLatencyDist(n, ddist, lambd)
         except ValueError as e:
             print e
             continue

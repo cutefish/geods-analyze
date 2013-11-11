@@ -395,7 +395,7 @@ def getFPLatencyDist(n, ddist, lambd):
     #debug
     #print 'factorial', factorial[0:10]
     #print 'poisson', poisson[0:10]
-    return eN, res
+    return res, eN
 
 def getEPLatencyDist(n, ddist, sync, elen):
     f = int(np.ceil(n / 2.0) - 1)
@@ -405,7 +405,7 @@ def getEPLatencyDist(n, ddist, sync, elen):
     #wait time is a uniform distribution on elen
     lb = 0; ub = elen; length = int((ub - lb) / ddist.h) + 1
     pmf = [1.0 / length] * length
-    ewait = DDist(lb, pmf, h=ddist.h)
+    ewait = DDist(lb, pmf, h=ddist.h, th=ddist.th)
     delay = oodelay(elatency,
                     {'arrival.process' : 'fixed', 'fixed.interval' : elen})
     return ewait + delay, delay, rtrip
