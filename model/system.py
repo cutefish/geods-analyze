@@ -63,6 +63,7 @@ def calcDetmnSystem(n, k, s, l, p):
         if resc > 100 * res0:
             raise NotConvergeException(resp, m, count)
         pt, a, h, wt, res, beta = calcDetmnExec(n, m, k, s)
+        print '>>>', res
         resc = res
         m = l * resc
         if abs(resp - resc) < THRESHOLD:

@@ -393,6 +393,7 @@ def validate_ndsys(params):
             axes.plot(x, ym, '+b-')
             axes.plot(x, ys, 'ro')
             axes.set_xlabel('Average Network Latency')
+            axes.set_ylim([0, 350])
             axes.set_ylabel('Response Time')
             fig.savefig('tmp/validate_ndsys.pdf')
 
@@ -421,7 +422,7 @@ def validate_desys(params):
         #sim
         resS = result['res.mean']
         mS = result['load.mean']
-        print resS, mS
+        print 'de', 's', resS, mS
         #model
         try:
             resM, mM, count, params = calcDetmnSystem(n, k, s, l, p)
@@ -433,26 +434,30 @@ def validate_desys(params):
             resM, mM, count = e.args
             print 'Not converge, res=%s, m=%s, count=%s'%(resM, mM, count)
             continue
-        print resM, mM, count
-        print p + k * s
+        print 'de', 'm', resM, mM, count
         #data
         def getError(m, s):
             if s == 0:
                 return 0
             return (s - m) / s
-        data['res'].add(ddist.mean, getError(resM, resS))
-        data['m'].add(ddist.mean, getError(mM, mS))
+        data['res'].add(lambd, resM)
+        data['res'].add(lambd, resS)
+    def getM(array):
+        return array[0]
+    def getS(array):
+        return array[1]
     for key in keys:
         fig = plt.figure()
         axes = fig.add_subplot(111)
-        x, y = data[key].get()
-        axes.plot(x, y, '+')
-        axes.set_xlabel('Average Network Latency')
-        axes.set_ylabel('Error Rate')
         if key == 'res':
+            x, y = data[key].get(ymap=(getM, getS))
+            ym, ys = y
+            axes.plot(x, ym, '+b-')
+            axes.plot(x, ys, 'ro')
+            axes.set_xlabel('Arrival Rate')
+            axes.set_ylim([0, 250])
+            axes.set_ylabel('Response Time')
             fig.savefig('tmp/validate_desys.pdf')
-        else:
-            fig.savefig('tmp/validate_desys_%s.pdf'%key)
 
 def main():
     if len(sys.argv) != 3:
