@@ -18,6 +18,11 @@ from model.system import calcDetmnSystem
 from model.system import ExceedsCountMaxException
 from model.system import NotConvergeException
 
+matplotlib.rc('xtick', labelsize=16)
+matplotlib.rc('ytick', labelsize=16)
+matplotlib.rc('font', size=16)
+matplotlib.rc('lines', markersize=10)
+
 DDists = { }
 
 def readparams(rfile):
@@ -221,13 +226,13 @@ def validate_sp(params):
         odelayS = result['order.consensus.time.mean']
         resS = result['res.mean']
         #data
-        err = abs(rtripM.mean - rtripS)/rtripM.mean
+        err = (rtripM.mean - rtripS)/rtripM.mean
         data['rtrip'].add(ddist.std, err)
-        err = abs(odelayM.mean - odelayS)/odelayM.mean
+        err = (odelayM.mean - odelayS)/odelayM.mean
         data['odelay'].add(ddist.std, err)
-        err = abs(resM.mean - resS)/resM.mean
+        err = (resM.mean - resS)/resM.mean
         data['res'].add(ddist.std, err)
-        print err
+        print i, err
     for key in keys:
         fig = plt.figure()
         axes = fig.add_subplot(111)
@@ -237,7 +242,7 @@ def validate_sp(params):
                       yerr=[np.array(yave) - np.array(ymin),
                             np.array(ymax) - np.array(yave)])
         axes.set_ylabel('Error Rate')
-        axes.set_xlabel('Network Latency STD')
+        axes.set_xlabel('Network Latency Standard Deviation')
         axes.set_xlim([5, 50])
         if key == 'res':
             fig.savefig('tmp/validate_sp.pdf')
@@ -269,13 +274,13 @@ def validate_ep(params):
         odelayS = result['order.consensus.time.mean']
         resS = result['res.mean']
         #data
-        err = abs(rtripM.mean - rtripS)/rtripM.mean
+        err = (rtripM.mean - rtripS)/rtripM.mean
         data['rtrip'].add(ddist.std, err)
-        err = abs(odelayM.mean - odelayS)/odelayM.mean
+        err = (odelayM.mean - odelayS)/odelayM.mean
         data['odelay'].add(ddist.std, err)
-        err = abs(resM.mean - resS)/resM.mean
+        err = (resM.mean - resS)/resM.mean
         data['res'].add(ddist.std, err)
-        print err
+        print i, err
     for key in keys:
         fig = plt.figure()
         axes = fig.add_subplot(111)
@@ -285,7 +290,7 @@ def validate_ep(params):
                       yerr=[np.array(yave) - np.array(ymin),
                             np.array(ymax) - np.array(yave)])
         axes.set_ylabel('Error Rate')
-        axes.set_xlabel('Network Latency STD')
+        axes.set_xlabel('Network Latency Standard Deviation')
         axes.set_xlim([5, 50])
         if key == 'res':
             fig.savefig('tmp/validate_ep.pdf')
@@ -306,7 +311,7 @@ def validate_fp(params):
         arrive = config['txn.arrive.interval.dist']
         arrkey, arrmean = arrive
         lambd = 1.0 / arrmean * n
-        rho = config['arrfactor']   #1 / \lambda T
+        lambdaT = config['lambdaT']   #1 / \lambda T
         #model
         try:
             resM, eNM = getFPLatencyDist(n, ddist, lambd)
@@ -314,11 +319,15 @@ def validate_fp(params):
             print e
             continue
         #sim
-        resS = result['res.mean']
+        try:
+            resS = result['res.mean']
+        except:
+            print i
+            continue
         #data
-        err = abs(resM - resS)/resM
-        data['res'].add(1.0 / rho, err)
-        print err
+        err = (resM - resS)/resM
+        data['res'].add(lambdaT, err)
+        print i, err
     fig = plt.figure()
     axes = fig.add_subplot(111)
     x, y = data['res'].get((np.average, min, max))
@@ -326,8 +335,9 @@ def validate_fp(params):
     axes.errorbar(x, yave, fmt='o',
                   yerr=[np.array(yave) - np.array(ymin),
                         np.array(ymax) - np.array(yave)])
+    axes.set_xlim([0, 0.9])
     axes.set_ylabel('Error Rate')
-    axes.set_xlabel('Occupancy $\lambda T$')
+    axes.set_xlabel(r'Arrival Rate $\times$ Average Round Trip Latency')
     fig.savefig('tmp/validate_fp.pdf')
 
 def validate_ndsys(params):

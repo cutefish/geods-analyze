@@ -16,6 +16,11 @@ from model.system import calcDetmnSystem
 from model.system import ExceedsCountMaxException
 from model.system import NotConvergeException
 
+matplotlib.rc('xtick', labelsize=16)
+matplotlib.rc('ytick', labelsize=16)
+matplotlib.rc('font', size=16)
+matplotlib.rc('lines', markersize=10)
+
 DDists = { }
 
 def getDDist(config):
@@ -340,6 +345,7 @@ def show_epelen(n, mean, lb, ub, sigmas, elens):
         legend_labels.append('Network STD =%.2f'%(ddists[i].std))
         legend_lines.append(line)
     axes.set_xlabel('Epoch Length')
+    axes.set_ylim([200, 300])
     axes.set_ylabel('Response Time')
     axes.legend(legend_lines, legend_labels, loc='lower right')
     fig.savefig('tmp/show_epelen.pdf')
