@@ -4,6 +4,7 @@ import sys
 import matplotlib
 matplotlib.use('pdf')
 import matplotlib.pylab as plt
+from matplotlib.ticker import MaxNLocator
 
 from model.ddist import DDist
 from model.execute import calcNDetmnExec
@@ -16,10 +17,10 @@ from model.system import calcDetmnSystem
 from model.system import ExceedsCountMaxException
 from model.system import NotConvergeException
 
-matplotlib.rc('xtick', labelsize=16)
-matplotlib.rc('ytick', labelsize=16)
-matplotlib.rc('font', size=16)
-matplotlib.rc('lines', markersize=10)
+matplotlib.rc('xtick', labelsize=24)
+matplotlib.rc('ytick', labelsize=24)
+matplotlib.rc('font', size=24)
+matplotlib.rc('lines', markersize=14)
 
 DDists = { }
 
@@ -120,6 +121,7 @@ def show_sysres(n, k, s, lambds, lmeans):
         linestyles[lambd] = defaultLinestyles[i]
     defaultColors = ['b', 'r', 'g', 'k']
     colors = {}
+    labelkey = {'nd':'ETO', 'de':'OTE'}
     for i, lambd in enumerate(lambds):
         colors[lambd] = defaultColors[i]
     for key in ['nd', 'de']:
@@ -127,11 +129,15 @@ def show_sysres(n, k, s, lambds, lmeans):
             x, y = lines[key][lambd].get()
             line, = axes.plot(x, y, marker=markers[key], linestyle=linestyles[lambd],
                               color=colors[lambd])
-            legend_labels.append('%s, $\lambda=%s$'%(key, lambd))
+            legend_labels.append('%s, $\lambda=%s$'%(labelkey[key], lambd))
             legend_lines.append(line)
     axes.set_xlabel('Average Network Latency')
     axes.set_ylabel('Average Response Time')
-    axes.legend(legend_lines, legend_labels, loc='upper left')
+    axes.set_ylim([80, 480])
+    axes.xaxis.set_major_locator(MaxNLocator(nbins=5))
+    axes.yaxis.set_major_locator(MaxNLocator(nbins=5))
+    fig.subplots_adjust(bottom=0.15, left=0.15)
+    axes.legend(legend_lines, legend_labels, loc='upper left', prop={'size':24})
     fig.savefig('tmp/show_sysres.pdf')
 
 def show_execm(n, k, s, lmeans):
@@ -159,19 +165,23 @@ def show_execm(n, k, s, lmeans):
     markers = {'nd': '^', 'de':'o'}
     linestyles = {'capacity': '--', 'active': '-'}
     colors = {'capacity': 'r', 'active':'b'}
+    labelkey = {'nd':'ETO', 'de':'OTE'}
     for syskey in ['nd', 'de']:
         for mkey in ['capacity', 'active']:
             x, y = lines[syskey][mkey].get()
             line, = axes.plot(x, y, marker=markers[syskey], linestyle=linestyles[mkey],
                               color=colors[mkey])
             if mkey == 'capacity':
-                legend_labels.append('%s, %s'%(syskey, 'Num Txns in System'))
+                legend_labels.append('%s, %s'%(labelkey[syskey], 'Num Txns in System'))
             else:
-                legend_labels.append('%s, %s'%(syskey, 'Peak Throughput'))
+                legend_labels.append('%s, %s'%(labelkey[syskey], 'Peak Throughput'))
             legend_lines.append(line)
     axes.set_xlabel('Average Network Latency')
     axes.set_ylabel('Max Number of Transactions')
-    axes.legend(legend_lines, legend_labels, loc='upper right')
+    axes.xaxis.set_major_locator(MaxNLocator(nbins=5))
+    axes.yaxis.set_major_locator(MaxNLocator(nbins=5))
+    fig.subplots_adjust(bottom=0.15, left=0.15)
+    axes.legend(legend_lines, legend_labels, loc='upper right', prop={'size':22})
     fig.savefig('tmp/show_execm.pdf')
 
 def getMaxNDActive(n, k, s, g):
@@ -221,14 +231,18 @@ def show_mres(n, k, s, lmeans):
     legend_labels = []
     legend_lines = []
     markers = {'nd': '^', 'de':'o'}
+    labelkey = {'nd':'ETO', 'de':'OTE'}
     for syskey in ['nd', 'de']:
         x, y = lines[syskey].get()
         line, = axes.plot(x, y, marker=markers[syskey], linestyle='-', color='r')
-        legend_labels.append('%s'%(syskey))
+        legend_labels.append('%s'%(labelkey[syskey]))
         legend_lines.append(line)
     axes.set_xlabel('Average Network Latency')
     axes.set_ylabel('Response Time')
-    axes.legend(legend_lines, legend_labels, loc='upper left')
+    axes.xaxis.set_major_locator(MaxNLocator(nbins=5))
+    axes.yaxis.set_major_locator(MaxNLocator(nbins=5))
+    fig.subplots_adjust(bottom=0.15, left=0.15)
+    axes.legend(legend_lines, legend_labels, loc='upper left', prop={'size':24})
     fig.savefig('tmp/show_mres.pdf')
 
 def show_spvsep(n, elen, mean, lb, ub, sigmas, lambds):
@@ -276,41 +290,67 @@ def show_spvsep(n, elen, mean, lb, ub, sigmas, lambds):
                               color=colors[lambd])
             legend_labels.append('%s, $\lambda=%s$'%(key, lambd))
             legend_lines.append(line)
-    axes.set_xlabel('Network Latency Standard Deviation / Average Network Latency')
+    axes.set_xlabel('Network Latency Std / Network Latency Mean')
     axes.set_ylabel('Response Time')
-    axes.legend(legend_lines, legend_labels, loc='upper left')
+    axes.xaxis.set_major_locator(MaxNLocator(nbins=5))
+    axes.yaxis.set_major_locator(MaxNLocator(nbins=5))
+    fig.subplots_adjust(bottom=0.15, left=0.15)
+    axes.legend(legend_lines, legend_labels, loc='upper left', prop={'size':24})
     fig.savefig('tmp/show_spvsep.pdf')
 
-def show_spvsfp(n, m, s, lb, ub, lambds):
+def show_spvsfp(n, m, lb, ub, sigmas, lambds):
     lines = {}
     keys = ['sp', 'fp']
-    ddist = getDDist(('lognorm', -1,
-                      {'mu' : math.log(m) - s**2 / 2,
-                       'sigma' : s, 'lb' : lb, 'ub' : ub}))
+    ddists = {}
+    for sigma in sigmas:
+        ddists[sigma] = getDDist(('lognorm', -1,
+                                  {'mu' : math.log(m) - sigma**2 / 2,
+                                   'sigma' : sigma, 'lb' : lb, 'ub' : ub}))
     for syskey in keys:
-        lines[syskey] = DataPoints()
+        for sigma in sigmas:
+            if syskey not in lines:
+                lines[syskey] = {}
+            lines[syskey][sigma] = DataPoints()
     #compute
     for lambd in lambds:
-        res, delay, rtrip = getSLPLatencyDist(n, ddist, lambd)
-        lines['sp'].add(lambd * 2 * m, res.mean)
-        print 'sp', res.mean
-        res, eN = getFPLatencyDist(n, ddist, lambd)
-        lines['fp'].add(lambd * 2 * m, res)
-        print 'fp', res
+        for sigma in sigmas:
+            res, delay, rtrip = getSLPLatencyDist(n, ddists[sigma], lambd)
+            lines['sp'][sigma].add(lambd * 2 * m, res.mean)
+            print 'sp', res.mean
+            res, eN = getFPLatencyDist(n, ddists[sigma], lambd)
+            lines['fp'][sigma].add(lambd * 2 * m, res)
+            print 'fp', res
+            print 'sigma', sigma
+            print
     #plot
     fig = plt.figure()
     axes = fig.add_subplot(111)
     legend_labels = []
     legend_lines = []
     markers = {'sp': '^', 'fp':'o'}
+    defaultLinestyles = ['-', '--', '-.', ':']
+    linestyles = {}
+    for i, sigma in enumerate(sigmas):
+        linestyles[sigma] = defaultLinestyles[i]
+    defaultColors = ['r', 'b', 'g', 'k']
+    colors = {}
+    for i, sigma in enumerate(sigmas):
+        colors[sigma] = defaultColors[i]
     for key in keys:
-        x, y = lines[key].get()
-        line, = axes.plot(x, y, marker=markers[key], linestyle='-', color='r')
-        legend_labels.append('%s'%(key))
-        legend_lines.append(line)
+        for sigma in sigmas:
+            x, y = lines[key][sigma].get()
+            line, = axes.plot(x, y, marker=markers[key],
+                              linestyle=linestyles[sigma],
+                              color=colors[sigma])
+            #legend_labels.append('%s, $\sigma=%s$'%(key, sigma))
+            legend_labels.append('%s'%(key))
+            legend_lines.append(line)
     axes.set_xlabel(r'Arrival Rate $\times$ Average Round Trip Latency')
     axes.set_ylabel('Response Time')
-    axes.legend(legend_lines, legend_labels, loc='upper left')
+    axes.legend(legend_lines, legend_labels, loc='upper left', prop={'size':24})
+    axes.xaxis.set_major_locator(MaxNLocator(nbins=5))
+    axes.yaxis.set_major_locator(MaxNLocator(nbins=5))
+    fig.subplots_adjust(bottom=0.15, left=0.15)
     fig.savefig('tmp/show_spvsfp.pdf')
 
 def show_epelen(n, mean, lb, ub, sigmas, elens):
@@ -347,7 +387,10 @@ def show_epelen(n, mean, lb, ub, sigmas, elens):
     axes.set_xlabel('Epoch Length')
     axes.set_ylim([200, 300])
     axes.set_ylabel('Response Time')
-    axes.legend(legend_lines, legend_labels, loc='lower right')
+    axes.legend(legend_lines, legend_labels, loc='lower right', prop={'size':24})
+    axes.xaxis.set_major_locator(MaxNLocator(nbins=5))
+    axes.yaxis.set_major_locator(MaxNLocator(nbins=5))
+    fig.subplots_adjust(bottom=0.15, left=0.15)
     fig.savefig('tmp/show_epelen.pdf')
 
 def show_epsynch(n, elen, mean, sigma, lb, ub, synchubs):
@@ -369,6 +412,9 @@ def show_epsynch(n, elen, mean, sigma, lb, ub, synchubs):
     line, = axes.plot(x, y, marker='^', linestyle='-', color='r')
     axes.set_xlabel('Time Drift Upper Bound')
     axes.set_ylabel('Response Time')
+    axes.xaxis.set_major_locator(MaxNLocator(nbins=5))
+    axes.yaxis.set_major_locator(MaxNLocator(nbins=5))
+    fig.subplots_adjust(bottom=0.15, left=0.15)
     fig.savefig('tmp/show_epsynch.pdf')
 
 def main():
@@ -422,15 +468,16 @@ def main():
         show_spvsep(n, e, m, lb, ub, sigmas, lambds)
     elif key == 'spvsfp':
         try:
-            n, m, s, lb, ub, lambds = args.split(';')
+            n, m, lb, ub, sigmas, lambds = args.split(';')
             n = int(n)
-            m, s, lb, ub = map(float, (m, s, lb, ub))
+            m, lb, ub = map(float, (m, lb, ub))
+            sigmas = eval(sigmas)
             lambds = eval(lambds)
         except Exception as e:
             print 'Error: %s'%e
-            print 'Args <n; m; s; lb; ub; [lambds]>. \n\tGot: %s.'%args
+            print 'Args <n; m; lb; ub; [sigmas]; [lambds]>. \n\tGot: %s.'%args
             sys.exit(-1)
-        show_spvsfp(n, m, s, lb, ub, lambds)
+        show_spvsfp(n, m, lb, ub, sigmas, lambds)
     elif key == 'epelen':
         try:
             n, m, lb, ub, sigmas, elens = args.split(';')

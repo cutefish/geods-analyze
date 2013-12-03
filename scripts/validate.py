@@ -5,6 +5,7 @@ import numpy as np
 import matplotlib
 matplotlib.use('pdf')
 import matplotlib.pylab as plt
+from matplotlib.ticker import MaxNLocator
 
 from model.ddist import DDist
 from model.execute import calcNDetmnExec
@@ -18,9 +19,9 @@ from model.system import calcDetmnSystem
 from model.system import ExceedsCountMaxException
 from model.system import NotConvergeException
 
-matplotlib.rc('xtick', labelsize=16)
-matplotlib.rc('ytick', labelsize=16)
-matplotlib.rc('font', size=16)
+matplotlib.rc('xtick', labelsize=24)
+matplotlib.rc('ytick', labelsize=24)
+matplotlib.rc('font', size=24)
 matplotlib.rc('lines', markersize=10)
 
 DDists = { }
@@ -152,12 +153,15 @@ def validate_nd(params):
         axes = fig.add_subplot(111)
         x, y = data[key].get()
         axes.plot(x, y, '+')
-        axes.set_xlabel('Probability of Blocking Per Step')
+        #axes.set_xlabel('Probability of Blocking Per Step')
+        axes.xaxis.set_major_locator(MaxNLocator(nbins=5))
+        axes.yaxis.set_major_locator(MaxNLocator(nbins=5))
         if key == 'res':
-            axes.set_ylabel('Error Rate')
+            #axes.set_ylabel('Error Rate')
             fig.savefig('tmp/validate_nd.pdf')
         else:
-            fig.savefig('tmp/validate_nd_%s.pdf'%key)
+            #fig.savefig('tmp/validate_nd_%s.pdf'%key)
+            pass
 
 def validate_de(params):
     data = {}
@@ -197,12 +201,15 @@ def validate_de(params):
         axes = fig.add_subplot(111)
         x, y = data[key].get()
         axes.plot(x, y, '+')
-        axes.set_xlabel('Probability of Blocking Each Txn')
+        #axes.set_xlabel('Probability of Blocking Each Txn')
+        axes.xaxis.set_major_locator(MaxNLocator(nbins=5))
+        axes.yaxis.set_major_locator(MaxNLocator(nbins=5))
         if key == 'res':
-            axes.set_ylabel('Error Rate')
+            #axes.set_ylabel('Error Rate')
             fig.savefig('tmp/validate_de.pdf')
         else:
-            fig.savefig('tmp/validate_de_%s.pdf'%key)
+            #fig.savefig('tmp/validate_de_%s.pdf'%key)
+            pass
 
 def validate_sp(params):
     data = {}
@@ -241,13 +248,17 @@ def validate_sp(params):
         axes.errorbar(x, yave, fmt='o',
                       yerr=[np.array(yave) - np.array(ymin),
                             np.array(ymax) - np.array(yave)])
-        axes.set_ylabel('Error Rate')
+        #axes.set_ylabel('Error Rate')
         axes.set_xlabel('Network Latency Standard Deviation')
+        axes.xaxis.set_major_locator(MaxNLocator(nbins=5))
+        axes.yaxis.set_major_locator(MaxNLocator(nbins=5))
         axes.set_xlim([5, 50])
+        fig.subplots_adjust(bottom=0.15)
         if key == 'res':
             fig.savefig('tmp/validate_sp.pdf')
         else:
-            fig.savefig('tmp/validate_sp_%s.pdf'%key)
+            #fig.savefig('tmp/validate_sp_%s.pdf'%key)
+            pass
 
 def validate_ep(params):
     data = {}
@@ -289,13 +300,17 @@ def validate_ep(params):
         axes.errorbar(x, yave, fmt='o',
                       yerr=[np.array(yave) - np.array(ymin),
                             np.array(ymax) - np.array(yave)])
-        axes.set_ylabel('Error Rate')
+        #axes.set_ylabel('Error Rate')
         axes.set_xlabel('Network Latency Standard Deviation')
         axes.set_xlim([5, 50])
+        axes.xaxis.set_major_locator(MaxNLocator(nbins=5))
+        axes.yaxis.set_major_locator(MaxNLocator(nbins=5))
+        fig.subplots_adjust(bottom=0.15)
         if key == 'res':
             fig.savefig('tmp/validate_ep.pdf')
         else:
-            fig.savefig('tmp/validate_ep_%s.pdf'%key)
+            #fig.savefig('tmp/validate_ep_%s.pdf'%key)
+            pass
 
 
 def validate_fp(params):
@@ -336,8 +351,11 @@ def validate_fp(params):
                   yerr=[np.array(yave) - np.array(ymin),
                         np.array(ymax) - np.array(yave)])
     axes.set_xlim([0, 0.9])
-    axes.set_ylabel('Error Rate')
+    axes.xaxis.set_major_locator(MaxNLocator(nbins=5))
+    axes.yaxis.set_major_locator(MaxNLocator(nbins=5))
+    #axes.set_ylabel('Error Rate')
     axes.set_xlabel(r'Arrival Rate $\times$ Average Round Trip Latency')
+    fig.subplots_adjust(bottom=0.15)
     fig.savefig('tmp/validate_fp.pdf')
 
 def validate_ndsys(params):
