@@ -50,12 +50,15 @@ def main():
     logger.info('\n#####  END  #####\n')
 
     ##verify
-    if parser.getOption('--verify'):
-        logger.info('\n#####  START VERIFICATION  #####\n')
-        v = Verifier()
-        v.check(system)
-        logger.info('VERIFICATION SUCCEEDS\n')
-        logger.info('\n#####  END  #####\n')
+    try:
+        if parser.getOption('--verify'):
+            logger.info('\n#####  START VERIFICATION  #####\n')
+            v = Verifier()
+            v.check(system)
+            logger.info('VERIFICATION SUCCEEDS\n')
+            logger.info('\n#####  END  #####\n')
+    except:
+        logger.error('Verification failed.')
 
     #get profile
     logger.info('\n#####  PROFILING RESULTS  #####\n')

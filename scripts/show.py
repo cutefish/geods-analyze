@@ -85,15 +85,21 @@ def show_sysres(n, k, s, lambds, lmeans):
     #compute
     for lambd in lambds:
         for lmean in lmeans:
+            c = 2 * lmean
+            rs = s
+            rc = c
+            C = lmean
             try:
-                res, m, count, params = calcNDetmnSystem(n, k, s, lambd, 2 * lmean, lmean)
+                res, m, count, params = calcNDetmnSystem(n, k, s, c, rs, rc, lambd, C)
             except ExceedsCountMaxException as e:
                 res, m, count = e.args
                 print 'Exceeds COUNT_MAX, res=%s, m=%s, count=%s'%(res, m, count)
                 continue
             except NotConvergeException as e:
                 res, m, count = e.args
-                print 'Not converge, res=%s, m=%s, count=%s'%(res, m, count)
+                print ('Not converge, n=%s, k=%s, s=%s, lambd=%s, lmean=%s, '
+                       'res=%s, m=%s, count=%s'
+                       % (n, k, s, lambd, lmean, res, m, count))
                 continue
             lines['nd'][lambd].add(lmean, res)
             print 'nd', lambd, lmean, res
@@ -105,7 +111,9 @@ def show_sysres(n, k, s, lambds, lmeans):
                 continue
             except NotConvergeException as e:
                 res, m, count = e.args
-                print 'Not converge, res=%s, m=%s, count=%s'%(res, m, count)
+                print ('Not converge, n=%s, k=%s, s=%s, lambd=%s, lmean=%s, '
+                       'res=%s, m=%s, count=%s'
+                       % (n, k, s, lambd, lmean, res, m, count))
                 continue
             lines['de'][lambd].add(lmean, res)
             print 'de', lambd, lmean, res
@@ -133,7 +141,7 @@ def show_sysres(n, k, s, lambds, lmeans):
             legend_lines.append(line)
     axes.set_xlabel('Average Network Latency')
     axes.set_ylabel('Average Response Time')
-    axes.set_ylim([80, 480])
+    #axes.set_ylim([80, 480])
     axes.xaxis.set_major_locator(MaxNLocator(nbins=5))
     axes.yaxis.set_major_locator(MaxNLocator(nbins=5))
     fig.subplots_adjust(bottom=0.15, left=0.15)
@@ -189,7 +197,7 @@ def getMaxNDActive(n, k, s, g):
     prev = 1
     while True:
         m += 1
-        ps, pd, ws, res, beta = calcNDetmnExec(n, m, k, s, g)
+        ps, pd, ws, res, beta = calcNDetmnExec(n, m, k, s, g, s, 0.5 * g * s)
         curr = m * (1 - beta)
         #print 'nd', m, curr, beta
         if curr < prev + 1e-1:

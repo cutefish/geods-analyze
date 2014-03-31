@@ -345,6 +345,8 @@ class TPLProxy(LockThread, MsgXeiver):
             item.write(value, ts)
             yield hold, self, RandInterval.get(*self.txn.config.get(
                 'commit.intvl.dist', ('fixed', 0))).next()
+        yield hold, self, RandInterval.get(*self.txn.config.get(
+            'commit.time.dist', ('fixed', 0))).next()
         #write to the original atomically
         dataset = self.snode.system.dataset
         for itemID, value in self.writeset.iteritems():

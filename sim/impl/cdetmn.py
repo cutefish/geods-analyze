@@ -226,6 +226,8 @@ class DETxnRunner(TxnRunner):
                 wsStrings.append('(%s, %s)'%(itemID, value))
             yield hold, self, RandInterval.get(*self.txn.config.get(
                 'commit.intvl.dist', ('fixed', 0))).next()
+        yield hold, self, RandInterval.get(*self.txn.config.get(
+            'commit.time.dist', ('fixed', 0))).next()
         if self.logger.isEnabledFor(logging.DEBUG):
             self.logger.debug('%s commit {%s}'
                               %(self.ID, ', '.join([s for s in wsStrings])))

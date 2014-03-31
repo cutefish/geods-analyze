@@ -1,6 +1,6 @@
 #!/bin/bash
 
-python -m scripts.show sysres "2048; 12; 10; [0.04, 0.08]; [0, 5, 10, 15, 20, 25, 30, 35, 40]"
+python -m scripts.show sysres "2048; 12; 10; [0.04, 0.06]; [0, 5, 10, 15, 20, 25, 30, 35]"
 python -m scripts.show execm "2048; 12; 10; [0, 5, 10, 15, 20, 25, 30]"
 python -m scripts.show mres "2048; 12; 10; [0, 5, 10, 15, 20, 25, 30]"
 python -m scripts.show spvsep "5; 30; 100; 50; 1000; [0.2, 0.4, 0.6, 0.8, 1.0]; [0.01, 0.04]"

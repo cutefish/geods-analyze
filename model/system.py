@@ -1,75 +1,89 @@
 import sys
 
+
+from model.ddist import DDist
 from model.execute import calcNDetmnExec
 from model.execute import calcDetmnExec
+from model.protocol import quorum, getSLPLatencyDist
+
 
 COUNT_MAX = 1000
-THRESHOLD = 0.1
+
 
 class ExceedsCountMaxException(Exception):
     pass
 
+
 class NotConvergeException(Exception):
     pass
 
-def calcNDetmnSystem(n, k, s, l, q, c):
+
+def calcNDetmnSystem(n, k, s, c, rs, rc, l, C):
     """
         n   --  total number of locks
         k   --  number of locks each txn
-        s   --  lock step overhead
+        s   --  average step time
+        c   --  average commit time
+        rs  --  step time var
+        rc  --  commit time var
         l   --  lambda, arrival rate
-        q   --  quorum round trip mean
-        c   --  client-leader overhead mean
+        C   --  average client-leader latency
     """
-    g = q / s
-    res0 = (k + g) * s
-    m0 = l * res0
+    #print n, k, s, c, rs, rc, l, C
+    res0 = k * s + c
+    m0 = int(l * res0)
     resp = res0
-    resc = 0
-    m = m0
+    resc = resp
+    mp = m0
+    mc = mp
     count = 0
     while True:
         count += 1
+        #print resp, mp
         if count > COUNT_MAX:
-            raise ExceedsCountMaxException(resp, m, count)
+            raise ExceedsCountMaxException(resp, mp, count)
         if resc > 100 * res0:
-            raise NotConvergeException(resp, m, count)
-        ps, pd, ws, res, beta = calcNDetmnExec(n, m, k, s, g)
+            raise NotConvergeException(resp, mp, count)
+        ps, pd, ws, res, beta = calcNDetmnExec(n, mp, k, s, c, rs, rc)
         resc = res
-        m = l * resc
-        if abs(resp - resc) < THRESHOLD:
+        mc = int(l * resc)
+        if abs(mc - mp) < 1:
             break
         resp = resc
-    return resc + c, m, count, (ps, pd, ws, beta)
+        mp = mc
+    return resc + C, mc, count, (ps, pd, ws, beta)
+
 
 def calcDetmnSystem(n, k, s, l, p):
     """
         n   --  total number of locks
         k   --  number of locks each txn
-        s   --  lock step overhead
+        s   --  average step time
         l   --  lambda, arrival rate
-        p   --  protocol latency mean
+        p   --  average protocol latency
     """
     res0 = k * s
     m0 = l * res0
     resp = res0
-    resc = 0
-    m = m0
+    resc = resp
+    mp = m0
+    mc = mp
     count = 0
     while True:
         count += 1
         if count > COUNT_MAX:
-            raise ExceedsCountMaxException(resp, m, count)
+            raise ExceedsCountMaxException(resp, mp, count)
         if resc > 100 * res0:
-            raise NotConvergeException(resp, m, count)
-        pt, a, h, wt, res, beta = calcDetmnExec(n, m, k, s)
-        print '>>>', res
+            raise NotConvergeException(resp, mp, count)
+        pt, a, h, wt, res, beta = calcDetmnExec(n, mp, k, s)
         resc = res
-        m = l * resc
-        if abs(resp - resc) < THRESHOLD:
+        mc = int(l * resc)
+        if abs(mc - mp) < 1:
             break
         resp = resc
-    return resc + p, m, count, (pt, a, h, wt, beta)
+        mp = mc
+    return resc + p, mc, count, (pt, a, h, wt, beta)
+
 
 def main():
     if len(sys.argv) != 3:
@@ -116,6 +130,7 @@ def main():
             print 'Not converge, res=%s, m=%s, count=%s'%(res, m, count)
     else:
         print 'Unknown key: %s'%key
+
 
 if __name__ == '__main__':
     main()

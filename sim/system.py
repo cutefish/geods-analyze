@@ -5,7 +5,7 @@ import time
 from Queue import PriorityQueue
 
 from SimPy.Simulation import Resource, SimEvent
-from SimPy.Simulation import now, initialize, simulate
+from SimPy.Simulation import now, initialize, simulate, stopSimulation
 from SimPy.Simulation import waitevent, hold, request, release
 
 from rintvl import RandInterval
@@ -54,6 +54,9 @@ class BaseSystem(Thread):
         self.realThr = self.configs.get('real.progress.print.intvl.thr', 10)
         self.lastPrintSimTime = 0
         self.lastPrintRealTime = 0
+        #for limit on real time
+        self.simStartTime = time.time()
+        self.realTimeDuration = configs.get('system.real.run.time', 3 * 3600)
 
     def createNodes(self):
         for i in range(self.configs['num.zones']):
@@ -187,13 +190,17 @@ class BaseSystem(Thread):
     def printProgress(self):
         #do not overflood the output, so we only print when both the
         #simulation time and real time pass a certain threshold
+        wallclock = time.time()
         if (now() - self.lastPrintSimTime > self.simThr) and \
-           (time.time() - self.lastPrintRealTime > self.realThr):
+           (wallclock - self.lastPrintRealTime > self.realThr):
             self.logger.info('progress = %s/%s/%s'%(self.numTxnsArrive,
                                                     self.numTxnsDepart,
                                                     self.numTxnsSched))
             self.lastPrintSimTime = now()
-            self.lastPrintRealTime = time.time()
+            self.lastPrintRealTime = wallclock
+            if wallclock - self.simStartTime > self.realTimeDuration:
+                self.logger.info('Simulation is taking too long. Stop.')
+                stopSimulation()
 
     def profile(self):
         resMean, resStd, resHisto, resCount = \

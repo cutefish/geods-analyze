@@ -65,6 +65,8 @@ def readresult(indir):
         key = key.strip()
         val = val.strip()
         result[key] = eval(val)
+    if len(result) == 0:
+        raise ValueError('Result is zero in %s' % indir)
     return result
 
 def skipUntil(fh, pattern):
@@ -108,7 +110,11 @@ def collect(indir, r):
             continue
         try:
             config = readconfig(rundir)
-            result = readresult(rundir)
+            try:
+                result = readresult(rundir)
+            except Exception as e:
+                print >> sys.stderr, 'Error in %s'%rundir
+                continue
             config['out.dir'] = str(d)
             print 'exp=(%s,%s)'%(config, result)
         except:

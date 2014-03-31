@@ -107,6 +107,10 @@ class DDist(object):
             self._std = np.sqrt(self._std)
         return self._std
 
+    @property
+    def var(self):
+        return self.std ** 2
+
     def __add__(self, ddist):
         if not isinstance(ddist, DDist):
             raise TypeError('%s is not of DDist type'%ddist)

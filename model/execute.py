@@ -1,72 +1,43 @@
-def calcNDetmnWait(k, g, s, u):
-    numerator = k * s * (3 * g**2 * s + 3 * g * k * s + 3 * g * k * u +
-                         3 * g * s - 3 * g * u + k**2 * s + k**2 * u +
-                         3 * k * s + 2 * s - u)
-    denominator = 3 * k * ((k + 1 + 2*g) * s + (k - 1) * u)
-    return numerator / denominator
+import sys
 
-def calcNDetmnExec(n, m, k, s, g, iterative=False):
+
+def calcNDetmnWait(k, c, s, u, rs, rc):
+    norm = k * (k + 1) / 2 * s + k * (k - 1) / 2 * u + k * c
+    tmp = -s * (s + u) * 1 / 6 * k * (k + 1) * (2 * k + 1) + \
+            (k * s + c + rs) * (s + u) * 1 / 2 * k * (k + 1) + \
+            s * u * 1/ 2 * k * (k + 1) - \
+            k * (k * s + c + rs) * u + \
+            rc * k * c
+    return tmp / norm
+
+def calcNDetmnExec(n, m, k, s, c, rs, rc):
     """
         n   --  total number of locks
         m   --  max number of txns
         k   --  number of locks each txn
         s   --  lock step overhead
-        g   --  commit time / s
+        c   --  commit time
     """
-    n, m, k, s, c = map(float, (n, m, k, s, g))
-    la = k / 2 * (k + 2 * g) / (k + g)
+    n, m, k, s, c = map(float, (n, m, k, s, c))
+    la = (k * (k + 1) * s + 2 * k * c) / (2 * (k * s + c))
     lb = k / 2
-    L = n * (1 - (1 - 1.0 / n)**((m - 1) * la))
+    mr = m - 1 if m > 1 else 0
+    L = n * (1 - (1 - 1.0 / n)**(mr * la))
+    #L = (m - 1) * la
     ps = L / n
-    u = ps * k * g * s / 2
-    w1 = calcNDetmnWait(k, g, s, u)
-    alpha = ps * k * w1 / ((k + g) * s + ps * k * w1)
-    ws = w1 * (1 + 1.0 / 2 * alpha**2 / (1 - alpha))
+    u = ps * rc
+    u = 0
+    #u = ps * k * rc
+    w1 = calcNDetmnWait(k, c, s, u, rs, rc)
+    alpha = ps * k * w1 / (k * s + c + ps * k * w1)
+    #ws = w1
+    ws = w1 * (0.5 - alpha / (1 - alpha) + 0.5 / (1 - alpha) + alpha / (1 - alpha)**2)
     pt = 1 - (1 - ps)**k
-    pd = pt / (m - 1)
-    #res = ((k + g) * s + ps * k * ws) * (1 + 2 * pd)
-    res = ((k + g) * s + ps * k * ws)
+    pd = ps * alpha / (m - 1)
+    res = (k * s + c + ps * k * ws)
     beta = ps * k * ws / res
-    wsp = ws
-    betap = beta
-    while iterative:
-        L = n * (1 - (1 - 1.0 / n)**((m - 1) * ((1 - betap) * la + betap * lb)))
-        ps = L / n
-        u = ps * k * wsp
-        w1 = calcNDetmnWait(k, g, s, u)
-        #ws = w1 * (1 + 0.5 * betap * (1 + betap) / (1 - betap)**2)
-        #ws = w1 * (1 + 0.5 * betap + 1.5 * betap**2 + 2.5 * betap**3)
-        ws = w1 * (1 + betap / (1 - betap))
-        pd = ps / (m - 1) * betap
-        res = ((k + g) * s + ps * k * ws) * (1 + 2 * pd)
-        beta = ps * k * ws / res
-        if abs(beta - betap) < 1e-3:
-            break
-        wsp = ws
-        betap = beta
     return ps, pd, ws, res, beta
-    #print 'ps1', ps, n, m, k, s, c
-    #A = (k / 3 + g) / (k + g)
-    #alpha = ps * k * A
-    #nl = (1 - alpha) * na + alpha * nb
-    ##nl = (1 - alpha) * k / 2 + alpha * k / 3
-    ##ps = nl * m / n
-    ##print 'ps2', ps, n, m, k, s, c, alpha
-    ##assert abs(alpha) < 1, (n, m, k, s, c, alpha)
 
-    #h1 = 1.0 / 3 * k * s + g * s
-    #ph2 = alpha * m * k / 3 / nl
-    #d = nl / ((1 - alpha) * m * k / 2)
-    #h2 = 1.0 / 3 * k * s + ps * k * h1 + g * s
-    #ph3 = alpha * m / nl
-    #h3 = 1.0 / 2 * k * s + ps * k * h1 + g * s
-    #w = h1 + ph2 * h2 + ph3 * h3
-
-    #pd = ps / m * alpha
-    #res = (k * s + ps * k * w + g * s) * (1 + 2 * pd)
-    #beta = w / res
-
-    #return ps, pd, w, res, beta
 
 def calcDetmnExec(n, m, k, s):
     """
@@ -87,3 +58,20 @@ def calcDetmnExec(n, m, k, s):
     return pt, a, h, wt, res, beta
 
 
+def main():
+    if len(sys.argv) != 3:
+        print 'execute <key> "<(args)>"'
+        print
+        sys.exit()
+    key = sys.argv[1]
+    args = eval(sys.argv[2])
+    if key == 'nd':
+        print calcNDetmnExec(*args)
+    elif key == 'de':
+        print calcDetmnExec(*args)
+    else:
+        print 'key error: %s' % (key)
+
+
+if __name__ == '__main__':
+    main()

@@ -6,6 +6,7 @@ import matplotlib
 matplotlib.use('pdf')
 import matplotlib.pylab as plt
 from matplotlib.ticker import MaxNLocator
+from matplotlib.ticker import FuncFormatter
 
 from model.ddist import DDist
 from model.execute import calcNDetmnExec
@@ -18,13 +19,23 @@ from model.system import calcNDetmnSystem
 from model.system import calcDetmnSystem
 from model.system import ExceedsCountMaxException
 from model.system import NotConvergeException
+from scripts.collect import readconfig
 
-matplotlib.rc('xtick', labelsize=24)
-matplotlib.rc('ytick', labelsize=24)
+#matplotlib.rcParams['text.usetex'] = True
+matplotlib.rc('xtick', labelsize=36)
+matplotlib.rc('ytick', labelsize=36)
 matplotlib.rc('font', size=24)
 matplotlib.rc('lines', markersize=10)
 
 DDists = { }
+
+#def toPercent(y, position):
+#    return '%.0f%s'%(y, r'$^{\bf \%}$')
+
+def toPercent(y, position):
+    return '%d%%'%(int(y))
+
+percentFormatter = FuncFormatter(toPercent)
 
 def readparams(rfile):
     fh = open(rfile, 'r')
@@ -116,6 +127,8 @@ def validate_nd(params):
     keys = ['ps', 'ws', 'res', 'load']
     for key in keys:
         data[key] = DataPoints()
+    minerror = 100
+    maxerror = -100
     for i, param in enumerate(params):
         config, result = param
         if not 'cdylock' in config['system.impl']:
@@ -123,44 +136,61 @@ def validate_nd(params):
         m = config['max.num.txns.in.system']
         k = config['nwrites']
         n = config['dataset.groups'][1]
-        s = config['intvl']
-        kgratio = config['kgratio']
-        g = k / kgratio
-        #if n == 1024:
-        #    continue
-        #if n != 16384 or m != 12 or k != 8 or s != 10:
-        #    continue
-        #model
-        psM, pdM, wsM, resM, beta = calcNDetmnExec(n, m, k, s, g)
+        s = config['write.intvl.mean']
+        c = config['commit.time.mean']
+        dt = config['dist.type']
+        if n < 4096:
+            continue
+        if dt == 'fixed':
+            rs = 0.5 * s
+            rc = 0.5 * c
+        elif dt == 'expo':
+            rs = s
+            rc = c
+        psM, pdM, wsM, resM, betaM = calcNDetmnExec(n, m, k, s, c, rs, rc)
         #sim
-        psS = result['lock.block.prob']
-        pdS = result['abort.deadlock.prob']
-        wsS = result['lock.block.time.mean']
-        resS = result['res.mean']
-        lS = result['load.mean']
+        try:
+            psS = result['lock.block.prob']
+            pdS = result['abort.deadlock.prob']
+            wsS = result['lock.block.time.mean']
+            resS = result['res.mean']
+            lS = result['load.mean']
+        except:
+            print config['filegen.id']
+            continue
         #data
         def getError(m, s):
             if s == 0:
                 return 0
-            return (s - m) / s
-        data['ps'].add(psS, getError(psM, psS))
+            return (m - s) / m * 100
+        if abs(getError(resM, resS)) > 50:
+            print ('id=%s, n=%s, m=%s, k=%s, s=%s, c=%s, rs=%s, rc=%s, '
+                   'psM=%s, psS=%s, pdM=%s, pdS=%s, wsM=%s, wsS=%s, resM=%s, resS=%s'
+                   % (config['filegen.id'], n, m, k, s, c, rs, rc,
+                      psM, psS, pdM, pdS, wsM, wsS, resM, resS))
         #data['pd'].add(beta, getError(pdM, pdS))
+        data['ps'].add(betaM, getError(psM, psS))
         data['ws'].add(psS, getError(wsM, wsS))
-        data['res'].add(psS, getError(resM, resS))
         data['load'].add(psS, getError(m, lS))
+        data['res'].add(betaM, getError(resM, resS))
+        error = getError(resM, resS)
+        minerror = min(minerror, error)
+        maxerror = max(maxerror, error)
     for key in keys:
         fig = plt.figure()
         axes = fig.add_subplot(111)
         x, y = data[key].get()
         axes.plot(x, y, '+')
         #axes.set_xlabel('Probability of Blocking Per Step')
-        axes.xaxis.set_major_locator(MaxNLocator(nbins=5))
+        axes.xaxis.set_major_locator(MaxNLocator(nbins=4))
         axes.yaxis.set_major_locator(MaxNLocator(nbins=5))
         if key == 'res':
-            #axes.set_ylabel('Error Rate')
+            axes.set_ylim([(minerror - 4) / 5 * 5, (maxerror + 4) / 5 * 5])
+            axes.yaxis.set_major_formatter(percentFormatter)
+            fig.subplots_adjust(left=0.2)
             fig.savefig('tmp/validate_nd.pdf')
         else:
-            #fig.savefig('tmp/validate_nd_%s.pdf'%key)
+            fig.savefig('tmp/validate_nd_%s.pdf'%key)
             pass
 
 def validate_de(params):
@@ -168,6 +198,8 @@ def validate_de(params):
     keys = ['pt', 'a', 'h', 'wt', 'res', 'load']
     for key in keys:
         data[key] = DataPoints()
+    minerror = 100
+    maxerror = -100
     for i, param in enumerate(params):
         config, result = param
         if not 'cdetmn' in config['system.impl']:
@@ -175,9 +207,11 @@ def validate_de(params):
         m = config['max.num.txns.in.system']
         k = config['nwrites']
         n = config['dataset.groups'][1]
-        s = config['intvl']
+        s = config['write.intvl.mean']
+        if n < 4096:
+            continue
         #model
-        ptM, aM, hM, wtM, resM, beta = calcDetmnExec(n, m, k, s)
+        ptM, aM, hM, wtM, resM, betaM = calcDetmnExec(n, m, k, s)
         #sim
         ptS = result['lock.block.prob']
         aS = m - result['num.blocking.txns.mean']
@@ -189,23 +223,22 @@ def validate_de(params):
         def getError(m, s):
             if s == 0:
                 return 0
-            return (s - m) / s
-        data['pt'].add(ptS, getError(ptM, ptS))
-        data['a'].add(ptS, getError(aM, aS))
-        data['h'].add(ptS, getError(hM, hS))
-        data['wt'].add(ptS, getError(wtM, wtS))
-        data['res'].add(ptS, getError(resM, resS))
-        data['load'].add(ptS, getError(m, lS))
+            return (m - s) / m * 100
+        error = getError(resM, resS)
+        data['res'].add(betaM, error)
+        minerror = min(minerror, error)
+        maxerror = max(maxerror, error)
     for key in keys:
         fig = plt.figure()
         axes = fig.add_subplot(111)
         x, y = data[key].get()
         axes.plot(x, y, '+')
-        #axes.set_xlabel('Probability of Blocking Each Txn')
         axes.xaxis.set_major_locator(MaxNLocator(nbins=5))
         axes.yaxis.set_major_locator(MaxNLocator(nbins=5))
         if key == 'res':
-            #axes.set_ylabel('Error Rate')
+            axes.set_ylim([(minerror - 9) / 10 * 10, (maxerror + 9) / 10 * 10])
+            fig.subplots_adjust(left=0.2)
+            axes.yaxis.set_major_formatter(percentFormatter)
             fig.savefig('tmp/validate_de.pdf')
         else:
             #fig.savefig('tmp/validate_de_%s.pdf'%key)
@@ -213,9 +246,11 @@ def validate_de(params):
 
 def validate_sp(params):
     data = {}
-    keys = ['rtrip', 'odelay', 'res']
+    keys = ['res']
     for key in keys:
         data[key] = DataPoints()
+    minerror = 100
+    maxerror = -100
     for i, param in enumerate(params):
         config, result = param
         if not 'slpdetmn' in config['system.impl']:
@@ -233,13 +268,15 @@ def validate_sp(params):
         odelayS = result['order.consensus.time.mean']
         resS = result['res.mean']
         #data
-        err = (rtripM.mean - rtripS)/rtripM.mean
-        data['rtrip'].add(ddist.std, err)
-        err = (odelayM.mean - odelayS)/odelayM.mean
-        data['odelay'].add(ddist.std, err)
-        err = (resM.mean - resS)/resM.mean
-        data['res'].add(ddist.std, err)
-        print i, err
+        def getError(m, s):
+            if s == 0:
+                return 0
+            return (m - s) / m * 100
+        error = getError(resM.mean, resS)
+        data['res'].add(ddist.std, error)
+        minerror = min(minerror, error)
+        maxerror = max(maxerror, error)
+        print i, error
     for key in keys:
         fig = plt.figure()
         axes = fig.add_subplot(111)
@@ -255,6 +292,8 @@ def validate_sp(params):
         axes.set_xlim([5, 50])
         fig.subplots_adjust(bottom=0.15)
         if key == 'res':
+            axes.set_ylim([(minerror - 1) / 2 * 2, (maxerror + 1) / 2 * 2])
+            axes.yaxis.set_major_formatter(percentFormatter)
             fig.savefig('tmp/validate_sp.pdf')
         else:
             #fig.savefig('tmp/validate_sp_%s.pdf'%key)
@@ -262,9 +301,11 @@ def validate_sp(params):
 
 def validate_ep(params):
     data = {}
-    keys = ['rtrip', 'odelay', 'res']
+    keys = ['res']
     for key in keys:
         data[key] = DataPoints()
+    minerror = 100
+    maxerror = -100
     for i, param in enumerate(params):
         config, result = param
         if not 'epdetmn' in config['system.impl']:
@@ -285,13 +326,15 @@ def validate_ep(params):
         odelayS = result['order.consensus.time.mean']
         resS = result['res.mean']
         #data
-        err = (rtripM.mean - rtripS)/rtripM.mean
-        data['rtrip'].add(ddist.std, err)
-        err = (odelayM.mean - odelayS)/odelayM.mean
-        data['odelay'].add(ddist.std, err)
-        err = (resM.mean - resS)/resM.mean
-        data['res'].add(ddist.std, err)
-        print i, err
+        def getError(m, s):
+            if s == 0:
+                return 0
+            return (m - s) / m * 100
+        error = getError(resM.mean, resS)
+        data['res'].add(ddist.std, error)
+        minerror = min(minerror, error)
+        maxerror = max(maxerror, error)
+        print i, error
     for key in keys:
         fig = plt.figure()
         axes = fig.add_subplot(111)
@@ -300,13 +343,14 @@ def validate_ep(params):
         axes.errorbar(x, yave, fmt='o',
                       yerr=[np.array(yave) - np.array(ymin),
                             np.array(ymax) - np.array(yave)])
-        #axes.set_ylabel('Error Rate')
         axes.set_xlabel('Network Latency Standard Deviation')
         axes.set_xlim([5, 50])
         axes.xaxis.set_major_locator(MaxNLocator(nbins=5))
-        axes.yaxis.set_major_locator(MaxNLocator(nbins=5))
+        axes.yaxis.set_major_locator(MaxNLocator(nbins=6))
         fig.subplots_adjust(bottom=0.15)
         if key == 'res':
+            axes.set_ylim([(minerror - 4) / 5 * 5, (maxerror + 4) / 5 * 5])
+            axes.yaxis.set_major_formatter(percentFormatter)
             fig.savefig('tmp/validate_ep.pdf')
         else:
             #fig.savefig('tmp/validate_ep_%s.pdf'%key)
@@ -316,6 +360,8 @@ def validate_ep(params):
 def validate_fp(params):
     data = {}
     data['res'] = DataPoints()
+    minerror = 100
+    maxerror = -100
     for i, param in enumerate(params):
         config, result = param
         if not 'fpdetmn' in config['system.impl']:
@@ -326,10 +372,9 @@ def validate_fp(params):
         arrive = config['txn.arrive.interval.dist']
         arrkey, arrmean = arrive
         lambd = 1.0 / arrmean * n
-        lambdaT = config['lambdaT']   #1 / \lambda T
         #model
         try:
-            resM, eNM = getFPLatencyDist(n, ddist, lambd)
+            resM, eNM, lambdaT = getFPLatencyDist(n, ddist, lambd)
         except ValueError as e:
             print e
             continue
@@ -340,9 +385,16 @@ def validate_fp(params):
             print i
             continue
         #data
-        err = (resM - resS)/resM
-        data['res'].add(lambdaT, err)
-        print i, err
+        lambdaT = int(lambdaT / 0.1) * 0.1
+        def getError(m, s):
+            if s == 0:
+                return 0
+            return (m - s) / m * 100
+        error = getError(resM, resS)
+        data['res'].add(lambdaT, error)
+        minerror = min(minerror, error)
+        maxerror = max(maxerror, error)
+        print i, error
     fig = plt.figure()
     axes = fig.add_subplot(111)
     x, y = data['res'].get((np.average, min, max))
@@ -350,45 +402,79 @@ def validate_fp(params):
     axes.errorbar(x, yave, fmt='o',
                   yerr=[np.array(yave) - np.array(ymin),
                         np.array(ymax) - np.array(yave)])
-    axes.set_xlim([0, 0.9])
+    axes.set_xlim([0.1, 0.9])
     axes.xaxis.set_major_locator(MaxNLocator(nbins=5))
     axes.yaxis.set_major_locator(MaxNLocator(nbins=5))
-    #axes.set_ylabel('Error Rate')
-    axes.set_xlabel(r'Arrival Rate $\times$ Average Round Trip Latency')
+    axes.set_ylim([(minerror - 9) / 10 * 10, (maxerror + 9) / 10 * 10])
+    axes.yaxis.set_major_formatter(percentFormatter)
+    axes.set_xlabel(r'Arrival Rate $\times$ Average Quorum Latency')
     fig.subplots_adjust(bottom=0.15)
     fig.savefig('tmp/validate_fp.pdf')
 
+
+def model_ndsys(confdir):
+    config = readconfig(confdir)
+    network = config['nw.latency.cross.zone']
+    nwdist = getDDist(network)
+    z = config['num.zones']
+    f = z / 2 + 1
+    q = quorum(z, f, nwdist)
+    c = q.mean
+    rc = (c**2 + q.var) / 2 / c
+    n = config['dataset.groups'][1]
+    k = config['nwrites']
+    step = config['txn.classes'][0]['action.intvl.dist']
+    stdist = getDDist(step)
+    s = stdist.mean
+    rs = (s**2 + stdist.var) / 2 / s
+    arr = config['txn.arrive.interval.dist'][1]
+    zl = 1.0 / arr
+    l = z * zl
+    C = float(z - 1) / z * nwdist.mean
+    res, m, count, stats = calcNDetmnSystem(n, k, s, c, rs, rc, l, C)
+    ps, pd, ws, beta = stats
+    print ('res=%s, m=%s, count=%s, (ps=%s, pd=%s, ws=%s, beta=%s)'
+           % (res, m, count, ps, pd, ws, beta))
+
+
 def validate_ndsys(params):
     data = {}
+    minerror = 100
+    maxerror = -100
     keys = ['res', 'm']
-    data['res'] = DataPoints()
-    data['m'] = DataPoints()
+    for key in keys:
+        data[key] = DataPoints()
     for i, param in enumerate(params):
         config, result = param
         if not 'mstdylock' in config['system.impl']:
             continue
         network = config['nw.latency.cross.zone']
-        ddist = getDDist(network)
+        nwdist = getDDist(network)
         z = config['num.zones']
-        arrive = config['txn.arrive.interval.dist']
-        arrkey, arrmean = arrive
-        lambd = 1.0 / arrmean * z
-        txncfg = config['txn.classes'][0]
+        f = z / 2 + 1
+        q = quorum(z, f, nwdist)
+        c = q.mean
+        rc = (c**2 + q.var) / 2 / c
         n = config['dataset.groups'][1]
-        k = txncfg['nwrites']
-        s = txncfg['action.intvl.dist'][1]
-        l = lambd
-        f = int(np.ceil(z / 2.0) - 1)
-        q = getQuorum(z, f, ddist).mean
-        c = float(z - 1) / z * ddist.mean
-        print n, k, s, l, ddist.mean
+        k = config['nwrites']
+        step = config['txn.classes'][0]['action.intvl.dist']
+        stdist = getDDist(step)
+        s = stdist.mean
+        rs = (s**2 + stdist.var) / 2 / s
+        arr = config['txn.arrive.interval.dist'][1]
+        zl = 1.0 / arr
+        l = z * zl
+        C = float(z - 1) / z * nwdist.mean
+        if n < 4096:
+            continue
         #sim
         resS = result['res.mean']
         mS = result['load.mean']
-        print resS, mS
+        print 'sim', resS, mS
         #model
         try:
-            resM, mM, count, params = calcNDetmnSystem(n, k, s, l, q, c)
+            resM, mM, count, stats = calcNDetmnSystem(n, k, s, c, rs, rc, l, C)
+            psM, pdM, wsM, betaM = stats
         except ExceedsCountMaxException as e:
             resM, mM, count = e.args
             print 'Exceeds COUNT_MAX, res=%s, m=%s, count=%s'%(resM, mM, count)
@@ -397,39 +483,130 @@ def validate_ndsys(params):
             resM, mM, count = e.args
             print 'Not converge, res=%s, m=%s, count=%s'%(resM, mM, count)
             continue
-        print resM, mM
-        print k * s + q + c
+        print 'model', resM, mM
+        print ('n=%s, k=%s, s=%s, c=%s, rs=%s, rc=%s, l=%s, C=%s'
+               % (n, k, s, c, rs, rc, l, C))
+        print k * s + c + C, psM, betaM
+        #data
+        def getError(m, s):
+            if s == 0:
+                return 0
+            return (m - s) / m * 100
+        if resS >= 20 * resM:
+            print >> sys.stderr, i, resS, resM, \
+                    ('n=%s, k=%s, s=%s, c=%s, rs=%s, rc=%s, l=%s, C=%s'
+                     % (n, k, s, c, rs, rc, l, C))
+            continue
+        error = getError(resM, resS)
+        minerror = min(error, minerror)
+        maxerror = max(error, maxerror)
+        print error
+        data['res'].add(betaM, getError(resM, resS))
+        data['m'].add(betaM, getError(mM, mS))
+    for key in keys:
+        fig = plt.figure()
+        axes = fig.add_subplot(111)
+        x, y = data[key].get()
+        axes.plot(x, y, '+')
+        axes.xaxis.set_major_locator(MaxNLocator(nbins=4))
+        axes.yaxis.set_major_locator(MaxNLocator(nbins=4))
+        if key == 'res':
+            axes.set_ylim([(minerror - 9) / 10 * 10, (maxerror + 9) / 10 * 10])
+            axes.yaxis.set_major_formatter(percentFormatter)
+            fig.subplots_adjust(left=0.2)
+            fig.savefig('tmp/validate_ndsys.pdf')
+        else:
+            fig.savefig('tmp/validate_ndsys_%s.pdf' % (key))
+
+
+def validate_ndsys1(params):
+    data = {}
+    labels = {}
+    minerror = -1
+    maxerror = 1
+    linestyles = {'sim' : '--', 'model' : '-'}
+    colors = ['r', 'b', 'g', 'y']
+    markers = ['o', '^', 'x', 's']
+    for i, param in enumerate(params):
+        config, result = param
+        if not 'mstdylock' in config['system.impl']:
+            continue
+        network = config['nw.latency.cross.zone']
+        nwdist = getDDist(network)
+        z = config['num.zones']
+        f = z / 2 + 1
+        q = quorum(z, f, nwdist)
+        c = q.mean
+        rc = (c**2 + q.var) / 2 / c
+        n = config['dataset.groups'][1]
+        k = config['nwrites']
+        step = config['txn.classes'][0]['action.intvl.dist']
+        stdist = getDDist(step)
+        s = stdist.mean
+        rs = (s**2 + stdist.var) / 2 / s
+        arr = config['txn.arrive.interval.dist'][1]
+        zl = 1.0 / arr
+        l = z * zl
+        C = float(z - 1) / z * nwdist.mean
+        #sim
+        resS = result['res.mean']
+        mS = result['load.mean']
+        print 'sim', resS, mS
+        #model
+        try:
+            resM, mM, count, stats = calcNDetmnSystem(n, k, s, c, rs, rc, l, C)
+            psM, pdM, wsM, betaM = stats
+        except ExceedsCountMaxException as e:
+            resM, mM, count = e.args
+            print 'Exceeds COUNT_MAX, res=%s, m=%s, count=%s'%(resM, mM, count)
+            continue
+        except NotConvergeException as e:
+            resM, mM, count = e.args
+            print 'Not converge, res=%s, m=%s, count=%s'%(resM, mM, count)
+            continue
+        print 'model', resM, mM
+        print ('n=%s, k=%s, s=%s, c=%s, rs=%s, rc=%s, l=%s, C=%s'
+               % (n, k, s, c, rs, rc, l, C))
+        print k * s + c + C, psM, betaM
         #data
         def getError(m, s):
             if s == 0:
                 return 0
             return (s - m) / s
-        data['res'].add(ddist.mean, resM)
-        data['res'].add(ddist.mean, resS)
-        #print getError(resM, resS)
-        data['m'].add(ddist.mean, getError(mM, mS))
-    def getM(array):
-        return array[0]
-    def getS(array):
-        return array[1]
-    for key in keys:
-        fig = plt.figure()
-        axes = fig.add_subplot(111)
-        if key == 'res':
-            x, y = data[key].get(ymap=(getM, getS))
-            ym, ys = y
-            axes.plot(x, ym, '+b-')
-            axes.plot(x, ys, 'ro')
-            axes.set_xlabel('Average Network Latency')
-            axes.set_ylim([0, 350])
-            axes.set_ylabel('Response Time')
-            fig.savefig('tmp/validate_ndsys.pdf')
+        error = getError(resM, resS)
+        minerror = min(error, minerror)
+        maxerror = max(error, maxerror)
+        print error
+        if l not in labels:
+            labels[l] = {}
+            labels[l]['sim'] = set([])
+            labels[l]['model'] = set([])
+        labels[l]['sim'].add(nwdist.mean)
+        labels[l]['model'].add(nwdist.mean)
+        data[(l, 'sim', nwdist.mean)] = resS
+        data[(l, 'model', nwdist.mean)] = resM
+    fig = plt.figure()
+    axes = fig.add_subplot(111)
+    for typename in ['sim', 'model']:
+        for i, l in enumerate(sorted(labels.keys())):
+            x = []
+            y = []
+            linestyle = linestyles[typename]
+            color = colors[i]
+            marker = markers[i]
+            for j, xx in enumerate(sorted(labels[l][typename])):
+                x.append(xx)
+                y.append(data[(l, typename, xx)])
+            axes.plot(x, y, linestyle=linestyle, color=color, marker=marker)
+    fig.savefig('tmp/validate_ndsys.pdf')
 
 def validate_desys(params):
     data = {}
     data['res'] = DataPoints()
     data['m'] = DataPoints()
     keys = ['res', 'm']
+    minerror = 100
+    maxerror = -100
     for i, param in enumerate(params):
         config, result = param
         if not 'slpdetmn' in config['system.impl']:
@@ -446,6 +623,8 @@ def validate_desys(params):
         s = txncfg['action.intvl.dist'][1]
         l = lambd
         p = getSLPL(z, ddist, lambd)
+        if n < 4096:
+            continue
         print n, k, s, l, p
         #sim
         resS = result['res.mean']
@@ -453,7 +632,8 @@ def validate_desys(params):
         print 'de', 's', resS, mS
         #model
         try:
-            resM, mM, count, params = calcDetmnSystem(n, k, s, l, p)
+            resM, mM, count, stats = calcDetmnSystem(n, k, s, l, p)
+            ptM, aM, hM, wtM, betaM = stats
         except ExceedsCountMaxException as e:
             resM, mM, count = e.args
             print 'Exceeds COUNT_MAX, res=%s, m=%s, count=%s'%(resM, mM, count)
@@ -467,25 +647,26 @@ def validate_desys(params):
         def getError(m, s):
             if s == 0:
                 return 0
-            return (s - m) / s
-        data['res'].add(lambd, resM)
-        data['res'].add(lambd, resS)
-    def getM(array):
-        return array[0]
-    def getS(array):
-        return array[1]
+            return (m - s) / m * 100
+        data['res'].add(betaM, getError(resM, resS))
+        data['m'].add(betaM, getError(mM, mS))
+        error = getError(resM, resS)
+        minerror = min(minerror, error)
+        maxerror = max(maxerror, error)
     for key in keys:
         fig = plt.figure()
         axes = fig.add_subplot(111)
+        x, y = data[key].get()
+        axes.plot(x, y, '+')
+        axes.xaxis.set_major_locator(MaxNLocator(nbins=4))
+        axes.yaxis.set_major_locator(MaxNLocator(nbins=5))
         if key == 'res':
-            x, y = data[key].get(ymap=(getM, getS))
-            ym, ys = y
-            axes.plot(x, ym, '+b-')
-            axes.plot(x, ys, 'ro')
-            axes.set_xlabel('Arrival Rate')
-            axes.set_ylim([0, 250])
-            axes.set_ylabel('Response Time')
+            axes.set_ylim([(minerror - 9) / 10 * 10, (maxerror + 9) / 10 * 10])
+            axes.yaxis.set_major_formatter(percentFormatter)
+            fig.subplots_adjust(left=0.2)
             fig.savefig('tmp/validate_desys.pdf')
+        else:
+            fig.savefig('tmp/validate_desys_%s.pdf' % (key))
 
 def main():
     if len(sys.argv) != 3:
@@ -502,6 +683,8 @@ def main():
         x, y = data.get((np.average, min, max))
         yave, ymin, ymax = y
         print x, yave, ymin, ymax
+    elif key == 'model_ndsys':
+        model_ndsys(sys.argv[2])
     else:
         params = readparams(sys.argv[2])
         if key == 'fp':

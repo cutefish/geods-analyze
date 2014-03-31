@@ -348,6 +348,18 @@ def getFPLatencyDist(n, ddist, lambd):
     rtrip = quorum(n, f, ddist)
     T = rtrip.mean
     print T
+    if 1.05 * lambd * T > 1:
+        raise ValueError('1/lambda = %s < 1.1 * %s = 1.1T'%(1.0 / lambd, T))
+    rou = lambd * T
+    eN = rou + rou**2 / 2 / (1 - rou)
+    res = eN / lambd
+    return res, eN, lambd * T
+
+def getFPLatencyDist1(n, ddist, lambd):
+    f = int(np.ceil(n / 3.0) - 1)
+    rtrip = quorum(n, f, ddist)
+    T = rtrip.mean
+    print T
     if 1.1 * lambd * T > 1:
         raise ValueError('1/lambda = %s < 1.1 * %s = 1.1T'%(1.0 / lambd, T))
     Q = []          #the probabiltiy of system has n proposers
@@ -396,7 +408,7 @@ def getFPLatencyDist(n, ddist, lambd):
     #debug
     #print 'factorial', factorial[0:10]
     #print 'poisson', poisson[0:10]
-    return res, eN
+    return res, eN, lambd * T
 
 def getEPLatencyDist(n, ddist, sync, elen):
     f = int(np.ceil(n / 2.0) - 1)
