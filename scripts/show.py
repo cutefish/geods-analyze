@@ -129,7 +129,7 @@ def show_sysres(n, k, s, lambds, lmeans):
         linestyles[lambd] = defaultLinestyles[i]
     defaultColors = ['b', 'r', 'g', 'k']
     colors = {}
-    labelkey = {'nd':'ETO', 'de':'OTE'}
+    labelkey = {'nd':'EBR', 'de':'RBE'}
     for i, lambd in enumerate(lambds):
         colors[lambd] = defaultColors[i]
     for key in ['nd', 'de']:
@@ -141,7 +141,7 @@ def show_sysres(n, k, s, lambds, lmeans):
             legend_lines.append(line)
     axes.set_xlabel('Average Network Latency')
     axes.set_ylabel('Average Response Time')
-    #axes.set_ylim([80, 480])
+    axes.set_ylim([80, 420])
     axes.xaxis.set_major_locator(MaxNLocator(nbins=5))
     axes.yaxis.set_major_locator(MaxNLocator(nbins=5))
     fig.subplots_adjust(bottom=0.15, left=0.15)
@@ -173,7 +173,7 @@ def show_execm(n, k, s, lmeans):
     markers = {'nd': '^', 'de':'o'}
     linestyles = {'capacity': '--', 'active': '-'}
     colors = {'capacity': 'r', 'active':'b'}
-    labelkey = {'nd':'ETO', 'de':'OTE'}
+    labelkey = {'nd':'EBR', 'de':'RBE'}
     for syskey in ['nd', 'de']:
         for mkey in ['capacity', 'active']:
             x, y = lines[syskey][mkey].get()
@@ -188,6 +188,7 @@ def show_execm(n, k, s, lmeans):
     axes.set_ylabel('Max Number of Transactions')
     axes.xaxis.set_major_locator(MaxNLocator(nbins=5))
     axes.yaxis.set_major_locator(MaxNLocator(nbins=5))
+    axes.set_ylim([0, 80])
     fig.subplots_adjust(bottom=0.15, left=0.15)
     axes.legend(legend_lines, legend_labels, loc='upper right', prop={'size':22})
     fig.savefig('tmp/show_execm.pdf')
@@ -239,7 +240,7 @@ def show_mres(n, k, s, lmeans):
     legend_labels = []
     legend_lines = []
     markers = {'nd': '^', 'de':'o'}
-    labelkey = {'nd':'ETO', 'de':'OTE'}
+    labelkey = {'nd':'EBR', 'de':'RBE'}
     for syskey in ['nd', 'de']:
         x, y = lines[syskey].get()
         line, = axes.plot(x, y, marker=markers[syskey], linestyle='-', color='r')
